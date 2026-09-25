@@ -3,6 +3,7 @@ name: Release
 # Push a "vX.Y.Z" tag (or run manually) to publish:
 #   - GitHub Release: one archive per platform (binary + .env.example +
 #     service installer + README) and checksums.txt
+#   - Android APK signed with the release key from the repo secrets
 #   - Docker image: ghcr.io/<owner>/<repo>:<tag> and :latest (amd64 + arm64)
 on:
   push:
@@ -71,6 +72,55 @@ jobs:
             dist/videocall_*.tar.gz
             dist/videocall_*.zip
             dist/checksums.txt
+
+  android:
+    # Runs after "binaries" so the GitHub Release already exists and this job
+    # only attaches the APK to it.
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set, refusing to publish an unsigned APK"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build signed APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # v1.2.3 becomes versionName 1.2.3 and versionCode 10203.
+          ver="${TAG#v}"
+          IFS=. read -r major minor patch <<< "$ver"
+          export VERSION_NAME="$ver" VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+          ./gradlew assembleRelease --no-daemon
+          apk="videocall_${TAG}_android.apk"
+          cp app/build/outputs/apk/release/app-release.apk "../$apk"
+          cd .. && sha256sum "$apk" > "$apk.sha256"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: |
+            videocall_*_android.apk
+            videocall_*_android.apk.sha256
 
   docker:
     runs-on: ubuntu-latest

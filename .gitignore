@@ -10,6 +10,9 @@
 *.pem
 *.crt
 *.key
+*.jks
+*.keystore
+*.p12
 
 # ---- build artifacts ----
 /dist/
