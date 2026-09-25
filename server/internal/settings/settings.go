@@ -66,7 +66,7 @@ const (
 
 var Catalog = []Field{
 	// ---- Calling & Media: dynamic, but the SFU only re-reads these at boot ----
-	{Key: "EXTERNAL_IP", Label: "External IP", Description: "LAN/VPN IP the SFU advertises in ICE candidates. Changing this needs a restart to take effect.", Kind: KindString, Group: GroupCalling, Dynamic: true},
+	{Key: "EXTERNAL_IP", Label: "External IP", Description: "Optional. The IP group-call media is sent to. Leave empty to use whatever address each browser connected to, which works for most setups. Changing this needs a restart to take effect.", Kind: KindString, Group: GroupCalling, Dynamic: true},
 	{Key: "TURN_HOST", Label: "TURN host", Description: "host:port of your coturn server, advertised to clients. Takes effect immediately.", Kind: KindString, Group: GroupCalling, Dynamic: true},
 	{Key: "TURN_SECRET", Label: "TURN secret", Description: "Shared coturn static-auth-secret. Takes effect immediately.", Kind: KindSecret, Group: GroupCalling, Dynamic: true},
 	{Key: "MAX_CALL_PARTICIPANTS", Label: "Max call participants", Description: "Conference soft cap. Changing this needs a restart to take effect.", Kind: KindInt, Default: "8", Group: GroupCalling, Dynamic: true},

@@ -76,6 +76,8 @@ type Client struct {
 	// reload can't just silently re-authenticate and re-kick the new session
 	// back - without that, two real devices would fight forever.
 	sessionID string
+	// host is the Host header the browser used to reach the server.
+	host string
 }
 
 func (c *Client) status() string {

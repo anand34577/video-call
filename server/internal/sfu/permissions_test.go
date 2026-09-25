@@ -9,10 +9,10 @@ import "testing"
 // participant can always undo themselves.
 func TestMuteLockBlocksSelfUnmute(t *testing.T) {
 	e := NewEngine(Config{MaxParticipants: 8})
-	if _, err := e.Join("group:1", 1, "host", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 1, "host", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join host: %v", err)
 	}
-	if _, err := e.Join("group:1", 2, "guest", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 2, "guest", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join guest: %v", err)
 	}
 	if !e.MuteRequest(1, 2, false, true) {
@@ -54,10 +54,10 @@ func TestMuteLockBlocksSelfUnmute(t *testing.T) {
 // them presenter rights lifts the restriction.
 func TestPresenterOnlyBlocksNonPresenter(t *testing.T) {
 	e := NewEngine(Config{MaxParticipants: 8})
-	if _, err := e.Join("group:1", 1, "host", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 1, "host", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join host: %v", err)
 	}
-	if _, err := e.Join("group:1", 2, "guest", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 2, "guest", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join guest: %v", err)
 	}
 	if !e.SetPresenterOnly(1, true, false) {

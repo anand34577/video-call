@@ -2,17 +2,20 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-const Version = "0.1.0"
+// Version is stamped at build time from the git tag, see scripts/build.sh.
+var Version = "dev"
 
 type Config struct {
 	// ListenAddr is the app's primary port: HTTPS when TLS is active (a real
@@ -39,6 +42,7 @@ type Config struct {
 	TurnHost               string // host:port of coturn, e.g. 192.168.1.10:3478
 	TurnSecret             string // coturn static-auth-secret; enables TURN credentials
 	MaxCallParticipants    int
+	WebRTCUDPPort          int // one UDP port for all SFU media; 0 = random ports
 	MaxFileBytes           int64
 	MaxUserStorageBytes    int64           // total upload storage allowed per user; 0 = unlimited
 	BlockedFileExtensions  map[string]bool // lowercase, with leading dot, e.g. ".exe"; rejected on upload
@@ -202,6 +206,7 @@ func Load() *Config {
 		TurnHost:              env("TURN_HOST", ""),
 		TurnSecret:            env("TURN_SECRET", ""),
 		MaxCallParticipants:   envInt("MAX_CALL_PARTICIPANTS", 8),
+		WebRTCUDPPort:         envInt("WEBRTC_UDP_PORT", 7882),
 		MaxFileBytes:          int64(envInt("MAX_FILE_MB", 50)) * 1024 * 1024,
 		MaxUserStorageBytes:   int64(envInt("MAX_USER_STORAGE_MB", 2048)) * 1024 * 1024,
 		BlockedFileExtensions: ParseExtList(env("BLOCKED_FILE_EXTENSIONS", defaultBlockedExtensions)),
@@ -226,14 +231,30 @@ func Load() *Config {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
 		c.JWTSecret = []byte(s)
 	} else {
-		buf := make([]byte, 32)
-		if _, err := rand.Read(buf); err != nil {
-			log.Fatalf("config: generating JWT secret: %v", err)
-		}
-		c.JWTSecret = buf
-		log.Println("config: WARNING: JWT_SECRET not set — generated an ephemeral secret; all sessions will be invalidated on restart. Set JWT_SECRET for persistence.")
+		c.JWTSecret = loadOrCreateSecret(filepath.Join(c.DataDir, "jwt_secret"))
 	}
 	return c
+}
+
+// loadOrCreateSecret keeps a random JWT secret in the data directory, so a
+// fresh install needs no JWT_SECRET and logins survive restarts.
+func loadOrCreateSecret(path string) []byte {
+	if b, err := os.ReadFile(path); err == nil && len(b) >= 32 {
+		return b
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("config: generating JWT secret: %v", err)
+	}
+	secret := []byte(hex.EncodeToString(buf))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+		err = os.WriteFile(path, secret, 0o600)
+		if err == nil {
+			return secret
+		}
+	}
+	log.Println("config: WARNING: could not save a JWT secret to the data directory; sessions will end on restart. Set JWT_SECRET to avoid this.")
+	return secret
 }
 
 // Validate logs operational warnings after the structured logger is available.
@@ -248,7 +269,7 @@ func (c *Config) Validate(log *slog.Logger) {
 	}
 
 	if c.ExternalIP == "" {
-		log.Warn("EXTERNAL_IP not set — SFU group calls may fail when participants are on different network segments; set EXTERNAL_IP to this server's LAN/VPN address")
+		log.Info("EXTERNAL_IP not set; group calls will advertise whichever server address each browser connected to")
 	} else {
 		log.Info("SFU external IP configured", "ip", c.ExternalIP)
 	}
@@ -390,4 +411,3 @@ func DetectPrimaryLANIP() string {
 	}
 	return fallback
 }
-

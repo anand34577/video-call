@@ -13,10 +13,10 @@ import (
 // back without needing a fresh publisher renegotiation.
 func TestForceMuteMicAndRestore(t *testing.T) {
 	e := NewEngine(Config{MaxParticipants: 8})
-	if _, err := e.Join("group:1", 1, "a", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 1, "a", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join 1: %v", err)
 	}
-	if _, err := e.Join("group:1", 2, "b", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 2, "b", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join 2: %v", err)
 	}
 	room := e.rooms["group:1"]

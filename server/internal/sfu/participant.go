@@ -24,6 +24,8 @@ type Participant struct {
 	userID int64
 	info   ParticipantInfo
 	signal SignalFunc
+	// advertiseIP is the server address this participant's browser used.
+	advertiseIP string
 
 	pub *webrtc.PeerConnection
 	sub *webrtc.PeerConnection
@@ -123,7 +125,7 @@ func (p *Participant) updateInfo(fn func(*ParticipantInfo)) {
 }
 
 func (p *Participant) createSubscriber() error {
-	pc, err := p.room.engine.newPeer()
+	pc, err := p.room.engine.newPeer(p.advertiseIP)
 	if err != nil {
 		return err
 	}
@@ -254,7 +256,7 @@ func (p *Participant) onPubOffer(sdp SDP) {
 		return
 	}
 	if p.pub == nil {
-		pc, err := p.room.engine.newPeer()
+		pc, err := p.room.engine.newPeer(p.advertiseIP)
 		if err != nil {
 			return
 		}

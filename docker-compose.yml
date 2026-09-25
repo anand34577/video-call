@@ -1,50 +1,53 @@
+# Vision Call with Docker Compose.
+#
+#   docker compose up -d
+#   docker compose logs app | grep -i password     # first admin password
+#
+# Then open https://<this computer's IP>:8443 from any device on your network.
+# No configuration is needed. To change a setting, create a .env file next to
+# this one (see .env.example) and run `docker compose up -d` again.
 name: videocall
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: videocall-app
-    # host networking is required on Linux so WebRTC media (SFU + coturn)
-    # can bind real UDP ports reachable from the LAN/VPN.
-    network_mode: host
-    environment:
-      LISTEN_ADDR: ":8443"
-      DATA_DIR: /data
-      TLS_CERT: ${TLS_CERT:-}
-      TLS_KEY: ${TLS_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
-      EXTERNAL_IP: ${EXTERNAL_IP:?Set EXTERNAL_IP in .env (LAN/VPN IP of this machine)}
-      BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}
-      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
-      MAX_CALL_PARTICIPANTS: ${MAX_CALL_PARTICIPANTS:-8}
-      TURN_HOST: ${TURN_HOST:-}
-      TURN_SECRET: ${TURN_SECRET:?Set TURN_SECRET in .env (long random string) - it is a shared relay credential, never leave it default}
-      TRUST_PROXY: ${TRUST_PROXY:-false}
-      PROXY_TLS: ${PROXY_TLS:-false}
-    volumes:
-      - ./data:/data
+    image: ghcr.io/anand34577/video-call:${VIDEOCALL_VERSION:-latest}
+    container_name: videocall
     restart: unless-stopped
+    ports:
+      - "8443:8443"      # HTTPS web app
+      - "8080:8080"      # plain HTTP (Android app, health checks)
+      - "7882:7882/udp"  # group-call audio and video
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - videocall-data:/data
 
+  # Optional TURN relay. Only needed when devices can't reach each other
+  # directly, such as some VPN meshes or networks split into several subnets.
+  # Set TURN_SECRET, TURN_HOST and EXTERNAL_IP in .env first, then start it
+  # with:  docker compose --profile turn up -d
   coturn:
+    profiles: [turn]
     image: coturn/coturn:4.6
     container_name: videocall-turn
+    restart: unless-stopped
     network_mode: host
-    # All settings via CLI flags so TURN_SECRET can flow in from .env.
     command: >
       -n
       --realm=videocall.lan
       --fingerprint
       --lt-cred-mech
       --use-auth-secret
-      --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET in .env}
+      --static-auth-secret=${TURN_SECRET:-}
       --listening-port=3478
       --min-port=49160
       --max-port=49200
-      --external-ip=${EXTERNAL_IP:?Set EXTERNAL_IP in .env}
+      --external-ip=${EXTERNAL_IP:-}
       --no-cli
       --no-tls
       --no-dtls
       --log-file=stdout
-    restart: unless-stopped
+
+volumes:
+  videocall-data:

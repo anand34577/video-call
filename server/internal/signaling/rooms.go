@@ -20,9 +20,9 @@ func roomGroupID(roomID string) (int64, bool) {
 }
 
 type roomJoinPayload struct {
-	RoomID string  `json:"room_id"`
-	Video  bool    `json:"video"`
-	Resume bool    `json:"resume"`
+	RoomID string `json:"room_id"`
+	Video  bool   `json:"video"`
+	Resume bool   `json:"resume"`
 	// Passcode only applies to "priv:<id>" rooms; ignored otherwise.
 	Passcode *string `json:"passcode"`
 }
@@ -57,7 +57,7 @@ func (c *Client) handleRoomJoin(env *Envelope) {
 		c.roomJoinError("you are already in a call")
 		return
 	}
-	_, err := c.hub.engine.Join(p.RoomID, c.user.ID, c.user.DisplayName, c.user.AvatarFileID, p.Video, p.Resume, c.hub.signalFunc(c.user.ID))
+	_, err := c.hub.engine.Join(p.RoomID, c.user.ID, c.user.DisplayName, c.user.AvatarFileID, p.Video, p.Resume, c.advertiseIP(), c.hub.signalFunc(c.user.ID))
 	if err != nil {
 		c.roomJoinError(err.Error())
 		return

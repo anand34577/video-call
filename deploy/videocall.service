@@ -1,17 +1,17 @@
 [Unit]
-Description=Vision Call (self-hosted LAN chat + video calling)
+Description=Vision Call (self-hosted chat and video calling)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Installed by scripts/install-linux.sh (creates the videocall user,
-# /opt/videocall/{videocall,.env,data}); see README "Running as a service".
+# Installed by scripts/install-linux.sh, which creates the videocall user and
+# /opt/videocall/{videocall,.env,data}. The app reads /opt/videocall/.env
+# itself because it runs from that directory.
 Type=simple
 User=videocall
 Group=videocall
 WorkingDirectory=/opt/videocall
-EnvironmentFile=/opt/videocall/.env
-ExecStart=/opt/videocall/videocall -addr :8443
+ExecStart=/opt/videocall/videocall
 Restart=on-failure
 RestartSec=3
 

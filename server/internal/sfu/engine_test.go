@@ -20,7 +20,7 @@ func TestEngineJoinLeaveConcurrent(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 30; i++ {
 				uid := int64(g*100 + i)
-				if _, err := e.Join(fmt.Sprintf("group:%d", i%3), uid, "u", nil, true, false, noopSignal); err != nil {
+				if _, err := e.Join(fmt.Sprintf("group:%d", i%3), uid, "u", nil, true, false, "", noopSignal); err != nil {
 					t.Errorf("join: %v", err)
 					return
 				}
@@ -41,14 +41,14 @@ func TestEngineJoinLeaveConcurrent(t *testing.T) {
 // remaining participant when the host leaves.
 func TestRoomHostPromotion(t *testing.T) {
 	e := NewEngine(Config{MaxParticipants: 8})
-	parts, err := e.Join("group:1", 1, "a", nil, true, false, noopSignal)
+	parts, err := e.Join("group:1", 1, "a", nil, true, false, "", noopSignal)
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
 	if !parts[0].Host {
 		t.Fatal("first joiner should be host")
 	}
-	if _, err := e.Join("group:1", 2, "b", nil, true, false, noopSignal); err != nil {
+	if _, err := e.Join("group:1", 2, "b", nil, true, false, "", noopSignal); err != nil {
 		t.Fatalf("join2: %v", err)
 	}
 	e.Leave(1)
@@ -68,10 +68,10 @@ func TestRoomHostPromotion(t *testing.T) {
 func TestClaimHost(t *testing.T) {
 	e := NewEngine(Config{MaxParticipants: 8})
 	defer e.Close()
-	if _, err := e.Join("priv:X", 1, "guest", nil, false, false, noopSignal); err != nil {
+	if _, err := e.Join("priv:X", 1, "guest", nil, false, false, "", noopSignal); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Join("priv:X", 2, "owner", nil, false, false, noopSignal); err != nil {
+	if _, err := e.Join("priv:X", 2, "owner", nil, false, false, "", noopSignal); err != nil {
 		t.Fatal(err)
 	}
 	e.ClaimHost("priv:X", 2)

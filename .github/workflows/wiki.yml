@@ -1,0 +1,40 @@
+name: Wiki
+
+# The wiki pages live in docs/wiki so they're reviewed like any other change.
+# This copies them to the GitHub wiki whenever they change on main.
+on:
+  push:
+    branches: [main]
+    paths: ["docs/wiki/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish docs/wiki to the GitHub wiki
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          url="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          if ! git clone --depth 1 "$url" wiki; then
+            echo "::error::The wiki has not been created yet. Open the Wiki tab on GitHub, save any first page, then re-run this workflow."
+            exit 1
+          fi
+          rsync -a --delete --exclude .git docs/wiki/ wiki/
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki is already up to date."
+            exit 0
+          fi
+          git commit -m "Update wiki from ${GITHUB_SHA::7}"
+          git push

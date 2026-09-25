@@ -62,7 +62,7 @@ try {
         $env:GOOS = $goos
         $env:GOARCH = $goarch
         Write-Host "==> compiling $goos/$goarch -> dist\$name"
-        go build -trimpath -ldflags="-s -w -X main.version=$version" -o (Join-Path $outDir $name) ./cmd/server
+        go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=$version" -o (Join-Path $outDir $name) ./cmd/server
         if ($LASTEXITCODE -ne 0) { throw "go build failed for $goos/$goarch" }
     }
 } finally {
@@ -70,4 +70,4 @@ try {
     Pop-Location
 }
 
-Write-Host "==> done: binaries in $outDir (set TLS_CERT/TLS_KEY before running, see README)"
+Write-Host "==> done: binaries in $outDir"

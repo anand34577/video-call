@@ -34,7 +34,7 @@ if command -v mkcert >/dev/null 2>&1; then
   mkcert -cert-file server.crt -key-file server.key "${SANS[@]}"
   echo "==> Done. mkcert's root CA is already trusted on this machine."
   echo "    For other devices, copy the rootCA.pem (mkcert -CAROOT shows its"
-  echo "    location) and trust it — see README 'Trusting the CA'."
+  echo "    location) and trust it — see the wiki page 'HTTPS and Certificates'."
   exit 0
 fi
 

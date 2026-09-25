@@ -37,9 +37,6 @@ import (
 	"videocall/static"
 )
 
-// Stamped at release time: go build -ldflags "-X main.version=v1.2.3".
-var version = "dev"
-
 func main() {
 	setupService()
 
@@ -48,11 +45,11 @@ func main() {
 	flag.BoolVar(&showVersion, "version", false, "Print the version and exit")
 	flag.StringVar(&cliAddr, "addr", "", "Listen address (e.g. :8080 or :9000)")
 	flag.StringVar(&cliPort, "port", "", "Listen port (e.g. 8080 or 9000)")
-	flag.StringVar(&backupPath, "backup", "", "Write a consistent DB backup to this path and exit (sqlite only; see README for Postgres/MySQL)")
+	flag.StringVar(&backupPath, "backup", "", "Write a consistent DB backup to this path and exit (built-in SQLite only; use pg_dump or mysqldump for Postgres/MySQL)")
 	flag.StringVar(&envFile, "env-file", ".env", "Optional .env file to load. Real environment variables (including Docker's) always take priority over it.")
 	flag.Parse()
 	if showVersion {
-		fmt.Println(version)
+		fmt.Println(config.Version)
 		return
 	}
 
@@ -76,7 +73,7 @@ func main() {
 	}
 
 	lg, logLevel := logger.New(cfg.LogLevel)
-	lg.Info("vision call", "version", version)
+	lg.Info("vision call", "version", config.Version)
 
 	// Also wire as the default slog logger so any third-party code that calls
 	// slog.Info etc. routes through our handler.

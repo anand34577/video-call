@@ -1,5 +1,9 @@
 #requires -RunAsAdministrator
-# Install Vision Call as a Windows service ("VisionCall", auto-start).
+# Install Vision Call as a Windows service ("VisionCall", starts with Windows).
+#
+# Most people should use the one-line installer instead, which downloads the
+# latest release and runs this script for you (PowerShell as Administrator):
+#   irm https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.ps1 | iex
 #
 # From an extracted release archive (videocall.exe and .env.example next to
 # this script):
@@ -8,7 +12,7 @@
 #   .\scripts\install-service.ps1 -BinPath dist\videocall-server-windows-amd64.exe
 #
 # Everything lives in -InstallDir: the exe, .env, data\ and videocall.log.
-# Re-running upgrades the exe in place; an existing .env is kept.
+# Running it again upgrades the exe in place and keeps your settings and data.
 # Uninstall: Stop-Service VisionCall; sc.exe delete VisionCall
 param(
     [string]$BinPath = (Join-Path $PSScriptRoot "videocall.exe"),
@@ -23,30 +27,54 @@ if (-not $envExample) { throw ".env.example not found next to this script" }
 
 $name = "VisionCall"
 $exe = Join-Path $InstallDir "videocall.exe"
+$log = Join-Path $InstallDir "videocall.log"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-# .env holds JWT_SECRET: only Administrators + SYSTEM (the service account).
+# The data folder holds the session signing key: only Administrators and
+# SYSTEM (the service account) may read it.
 icacls $InstallDir /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null
 
 if (Get-Service $name -ErrorAction SilentlyContinue) { Stop-Service $name -Force }
 Copy-Item $BinPath $exe -Force
-
 $envFile = Join-Path $InstallDir ".env"
-if (-not (Test-Path $envFile)) {
-    $bytes = New-Object byte[] 32
-    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $secret = -join ($bytes | ForEach-Object { $_.ToString("x2") })
-    (Get-Content $envExample) -replace '^JWT_SECRET=$', "JWT_SECRET=$secret" |
-        Set-Content $envFile -Encoding ascii
-    Write-Host "==> wrote $envFile (random JWT_SECRET) - set EXTERNAL_IP in it"
-}
+if (-not (Test-Path $envFile)) { Copy-Item $envExample $envFile }
 
 if (-not (Get-Service $name -ErrorAction SilentlyContinue)) {
-    New-Service -Name $name -BinaryPathName "`"$exe`" -addr :8443" -DisplayName "Vision Call" `
-        -Description "Self-hosted LAN chat + video calling" -StartupType Automatic | Out-Null
-    # WebRTC uses dynamic UDP ports, so allow the program rather than a port list.
+    New-Service -Name $name -BinaryPathName "`"$exe`"" -DisplayName "Vision Call" `
+        -Description "Self-hosted chat and video calling" -StartupType Automatic | Out-Null
+    # WebRTC also uses UDP, so allow the program rather than a list of ports.
     New-NetFirewallRule -DisplayName "Vision Call" -Direction Inbound -Program $exe -Action Allow | Out-Null
 }
+$logStart = if (Test-Path $log) { (Get-Item $log).Length } else { 0 }
 Start-Service $name
 
-Write-Host "==> installed $(& $exe -version) as service '$name'"
-Write-Host "    logs + first-boot admin password: $(Join-Path $InstallDir 'videocall.log')"
+# The very first start prints a random admin password; show it here so nobody
+# has to open the log file. Only lines written by this start count, so an
+# upgrade never shows an old password.
+$password = $null
+foreach ($i in 1..10) {
+    if (Test-Path $log) {
+        $stream = [IO.File]::Open($log, "Open", "Read", "ReadWrite")
+        try {
+            [void]$stream.Seek($logStart, "Begin")
+            $fresh = (New-Object IO.StreamReader($stream)).ReadToEnd()
+        } finally { $stream.Close() }
+        if ($fresh -match 'Bootstrap admin password: ([^" \r\n]+)') { $password = $Matches[1]; break }
+    }
+    Start-Sleep -Seconds 1
+}
+$ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' -and $_.PrefixOrigin -ne 'WellKnown' } |
+    Select-Object -First 1).IPAddress
+if (-not $ip) { $ip = "localhost" }
+
+Write-Host ""
+Write-Host "Vision Call $(& $exe -version) is running."
+Write-Host "  Open:      https://${ip}:8443"
+if ($password) {
+    Write-Host "  Sign in:   admin / $password   (change it after signing in)"
+} else {
+    Write-Host "  Sign in:   use your existing admin account"
+}
+Write-Host "  Settings:  $envFile, then: Restart-Service $name"
+Write-Host "  Logs:      $log"
+Write-Host "  Uninstall: Stop-Service $name; sc.exe delete $name"

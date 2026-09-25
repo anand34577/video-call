@@ -3,12 +3,11 @@
 #   0 3 * * * /opt/videocall/deploy/backup.sh
 #
 # Only needed when running the default embedded sqlite database. If you set
-# DATABASE_URL to Postgres or MySQL, use pg_dump / mysqldump instead — see
-# the README's Backups section.
+# DATABASE_URL to Postgres or MySQL, use pg_dump or mysqldump instead (see the
+# wiki page "Backups and Upgrades").
 set -eu
 
-# Default assumes the systemd unit's layout: the per-platform build output
-# (e.g. videocall-server-linux-amd64) copied/renamed to this fixed path.
+# Defaults match the layout scripts/install-linux.sh creates.
 BIN="${VIDEOCALL_BIN:-/opt/videocall/videocall}"
 DATA_DIR="${DATA_DIR:-/opt/videocall/data}"
 BACKUP_DIR="${BACKUP_DIR:-$DATA_DIR/backups}"

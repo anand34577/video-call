@@ -45,8 +45,8 @@ type Hub struct {
 	// without it a short numeric passcode falls to brute force over one
 	// socket, each guess costing the server an argon2 hash.
 	passcodes *auth.LoginLimiter
-	upgrader     websocket.Upgrader
-	closed       atomic.Bool
+	upgrader  websocket.Upgrader
+	closed    atomic.Bool
 
 	// lastStatus remembers each user's last explicitly-chosen presence status
 	// ("away"/"dnd") across reconnects — a Client's status lives on that one
@@ -96,16 +96,11 @@ func NewHub(cfg *config.Config, dbh *db.DB, log *slog.Logger, settingsStore *set
 	// SFU engine doesn't re-read them mid-run, but a restart after an admin
 	// edit does, since settingsStore.Get() already merges env/.env/DB/default.
 	sv := settingsStore.Get()
-	extIP := sv.ExternalIP
-	if extIP == "" {
-		if lanIP := config.DetectPrimaryLANIP(); lanIP != "" {
-			extIP = lanIP
-			log.Info("sfu: auto-detected LAN ExternalIP", "ip", extIP)
-		}
-	}
 	h.engine = sfu.NewEngine(sfu.Config{
 		MaxParticipants: sv.MaxCallParticipants,
-		ExternalIP:      extIP,
+		ExternalIP:      sv.ExternalIP,
+		FallbackIP:      config.DetectPrimaryLANIP(),
+		UDPPort:         cfg.WebRTCUDPPort,
 	}, log)
 	h.engine.OnEvent = h.onRoomEvent
 	return h
@@ -154,6 +149,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		send:      make(chan []byte, 256),
 		log:       clog,
 		deviceID:  r.URL.Query().Get("device"),
+		host:      r.Host,
 		sessionID: claims.SessionID,
 	}
 	h.register(c)

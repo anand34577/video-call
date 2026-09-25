@@ -12,8 +12,10 @@ package sfu
 import (
 	"errors"
 	"log/slog"
+	"net"
 	"sync"
 
+	"github.com/pion/ice/v4"
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/intervalpli"
 	"github.com/pion/webrtc/v4"
@@ -21,7 +23,14 @@ import (
 
 type Config struct {
 	MaxParticipants int
-	ExternalIP      string
+	// ExternalIP, when set, is the address advertised to every participant.
+	ExternalIP string
+	// FallbackIP is advertised when neither ExternalIP nor the address the
+	// participant used to reach the server is known (the auto-detected LAN IP).
+	FallbackIP string
+	// UDPPort, when above zero, carries all SFU media over this one UDP port,
+	// so a firewall rule or `docker run -p` only has to cover a single port.
+	UDPPort int
 }
 
 const (
@@ -89,6 +98,7 @@ type Engine struct {
 	users   map[int64]*Room
 	OnEvent func(Event)
 	log     *slog.Logger
+	udpMux  *ice.UDPMuxDefault // nil when media uses random ports
 }
 
 func NewEngine(cfg Config, logs ...*slog.Logger) *Engine {
@@ -96,7 +106,17 @@ func NewEngine(cfg Config, logs ...*slog.Logger) *Engine {
 	if len(logs) > 0 && logs[0] != nil {
 		log = logs[0]
 	}
-	return &Engine{cfg: cfg, rooms: map[string]*Room{}, users: map[int64]*Room{}, log: log}
+	e := &Engine{cfg: cfg, rooms: map[string]*Room{}, users: map[int64]*Room{}, log: log}
+	if cfg.UDPPort > 0 {
+		conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: cfg.UDPPort})
+		if err != nil {
+			log.Warn("sfu: cannot bind WebRTC UDP port, falling back to random ports", "port", cfg.UDPPort, "err", err)
+		} else {
+			e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: conn})
+			log.Info("sfu: media on a single UDP port", "port", cfg.UDPPort)
+		}
+	}
+	return e
 }
 
 func (e *Engine) emit(ev Event) {
@@ -108,7 +128,10 @@ func (e *Engine) emit(ev Event) {
 // Join adds a user to a room (creating it when absent). With resume=true and a
 // live participant for the same user (brief WS drop), the existing peer
 // connections are kept and only the signal callback is swapped.
-func (e *Engine) Join(roomID string, userID int64, displayName string, avatarFileID *int64, video bool, resume bool, signal SignalFunc) ([]ParticipantInfo, error) {
+//
+// advertiseIP is the server address this participant's browser connected
+// to; see newPeer.
+func (e *Engine) Join(roomID string, userID int64, displayName string, avatarFileID *int64, video bool, resume bool, advertiseIP string, signal SignalFunc) ([]ParticipantInfo, error) {
 	for {
 		// Engine membership is reserved while the room lock is held. This makes
 		// concurrent joins for one user deterministic across different rooms.
@@ -156,10 +179,11 @@ func (e *Engine) Join(roomID string, userID int64, displayName string, avatarFil
 			return nil, ErrRoomFull
 		}
 		p := &Participant{
-			room:    room,
-			userID:  userID,
-			signal:  signal,
-			senders: map[*webrtc.TrackLocalStaticRTP]*webrtc.RTPSender{},
+			room:        room,
+			userID:      userID,
+			signal:      signal,
+			advertiseIP: advertiseIP,
+			senders:     map[*webrtc.TrackLocalStaticRTP]*webrtc.RTPSender{},
 			info: ParticipantInfo{
 				UserID:       userID,
 				DisplayName:  displayName,
@@ -485,6 +509,9 @@ func (e *Engine) Close() {
 	for _, r := range rooms {
 		r.closeAll()
 	}
+	if e.udpMux != nil {
+		_ = e.udpMux.Close()
+	}
 	e.log.Info("sfu: engine closed", "rooms_closed", len(rooms))
 }
 
@@ -492,7 +519,7 @@ func (e *Engine) Close() {
 // configured, a 1:1 NAT address so ICE advertises the LAN/VPN IP instead of an
 // internal container address. intervalpli keeps asking publishers for
 // keyframes so late joiners and recovered decoders get clean pictures.
-func (e *Engine) newPeer() (*webrtc.PeerConnection, error) {
+func (e *Engine) newPeer(advertiseIP string) (*webrtc.PeerConnection, error) {
 	me := &webrtc.MediaEngine{}
 	if err := me.RegisterDefaultCodecs(); err != nil {
 		e.log.Error("sfu: register codecs", "err", err)
@@ -510,8 +537,22 @@ func (e *Engine) newPeer() (*webrtc.PeerConnection, error) {
 	}
 	ir.Add(pli)
 	se := webrtc.SettingEngine{}
-	if e.cfg.ExternalIP != "" {
-		se.SetNAT1To1IPs([]string{e.cfg.ExternalIP}, webrtc.ICECandidateTypeHost)
+	// Advertise one address the browser can reach. An explicit EXTERNAL_IP
+	// wins; otherwise use the address the browser already reached over HTTP,
+	// which is right even inside a Docker bridge network where the server
+	// only sees its container IP.
+	ip := e.cfg.ExternalIP
+	if ip == "" {
+		ip = advertiseIP
+	}
+	if ip == "" {
+		ip = e.cfg.FallbackIP
+	}
+	if ip != "" {
+		se.SetNAT1To1IPs([]string{ip}, webrtc.ICECandidateTypeHost)
+	}
+	if e.udpMux != nil {
+		se.SetICEUDPMux(e.udpMux)
 	}
 	api := webrtc.NewAPI(
 		webrtc.WithMediaEngine(me),

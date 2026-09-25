@@ -6,6 +6,24 @@ on:
   pull_request:
 
 jobs:
+  scripts:
+    name: scripts (syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell scripts
+        run: |
+          sh -n scripts/get.sh
+          for f in scripts/*.sh deploy/*.sh; do bash -n "$f"; done
+      - name: Check PowerShell scripts
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem scripts, deploy -Filter *.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
+            if ($errors) { $errors; exit 1 }
+          }
+
   server:
     name: server (build, vet, test)
     runs-on: ubuntu-latest

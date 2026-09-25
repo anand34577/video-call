@@ -55,8 +55,9 @@ jobs:
             else
               cp "$bin" "$pkg/videocall"
               if [[ "$plat" == linux-* ]]; then
-                cp ../scripts/install-linux.sh ../deploy/videocall.service "$pkg/"
-                chmod +x "$pkg/install-linux.sh" "$pkg/videocall"
+                cp ../scripts/install-linux.sh ../deploy/videocall.service ../deploy/backup.sh \
+                  ../deploy/videocall-backup.service ../deploy/videocall-backup.timer "$pkg/"
+                chmod +x "$pkg/install-linux.sh" "$pkg/backup.sh" "$pkg/videocall"
               fi
               tar -czf "$pkg.tar.gz" "$pkg"
             fi
@@ -148,6 +149,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: VERSION=${{ env.TAG }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=Vision Call
+            org.opencontainers.image.description=Self-hosted chat and video calling for your own network
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ env.TAG }}
           tags: |
             ${{ env.IMAGE }}:${{ env.TAG }}
             ${{ env.IMAGE }}:latest

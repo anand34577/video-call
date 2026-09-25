@@ -23,7 +23,7 @@ COPY --from=web /src/web/dist ./static/dist
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/videocall-server ./cmd/server
+    go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=${VERSION}" -o /out/videocall-server ./cmd/server
 
 # ---- runtime ----
 FROM alpine:3.21
@@ -31,10 +31,17 @@ RUN adduser -D -u 10001 app && apk add --no-cache ca-certificates tzdata \
  && mkdir /data && chown app:app /data
 COPY --from=server /out/videocall-server /usr/local/bin/videocall-server
 # /data owned by app so a fresh named volume is writable; a bind mount keeps
-# the host dir's owner instead (chown it to 10001, see README).
+# the host dir's owner instead (chown it to 10001).
 ENV DATA_DIR=/data
 VOLUME ["/data"]
 WORKDIR /data
 USER app
-EXPOSE 8443 8080
+# 8443 HTTPS app, 8080 plain HTTP, 7882/udp group-call media.
+EXPOSE 8443/tcp 8080/tcp 7882/udp
+# Port 8080 serves /api/healthz in every mode except HTTPS_REDIRECT=true, so
+# fall back to the HTTPS port for that case.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/api/healthz \
+   || wget -q -O /dev/null --no-check-certificate https://127.0.0.1:8443/api/healthz \
+   || exit 1
 ENTRYPOINT ["videocall-server"]

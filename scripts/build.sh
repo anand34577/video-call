@@ -42,7 +42,7 @@ for target in "${targets[@]}"; do
   fi
   echo "==> compiling $GOOS/$GOARCH -> dist/$name"
   (cd server && CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -ldflags="-s -w -X main.version=$version" -o "../dist/$name" ./cmd/server)
+    go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=$version" -o "../dist/$name" ./cmd/server)
 done
 
-echo "==> done: binaries in ./dist (set TLS_CERT/TLS_KEY before running, see README)"
+echo "==> done: binaries in ./dist"

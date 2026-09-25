@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Self-hosted LAN server: plain HTTP is allowed (DISABLE_TLS mode / localhost dev),
-     and a CA the user installed by hand (see README "Trusting a self-signed
-     certificate") is trusted the same way a browser trusts it. -->
+<!-- Self-hosted LAN server: plain HTTP is allowed (the server's port 8080, or
+     DISABLE_TLS mode), and a certificate the user installed by hand (see the
+     wiki page "HTTPS and Certificates") is trusted the same way a browser
+     trusts it. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
