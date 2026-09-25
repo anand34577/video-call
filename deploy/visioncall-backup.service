@@ -3,19 +3,19 @@ Description=Vision Call daily database backup
 # Don't fight the main service for the sqlite file at the exact moment it
 # starts or restarts. The backup only reads a snapshot of the database, so the
 # server keeps running normally throughout.
-After=videocall.service
+After=visioncall.service
 
 [Service]
 Type=oneshot
-User=videocall
-Group=videocall
-WorkingDirectory=/opt/videocall
+User=visioncall
+Group=visioncall
+WorkingDirectory=/opt/visioncall
 # Installed by scripts/install-linux.sh. Backups land in
-# /opt/videocall/data/backups and are kept for 14 days.
-ExecStart=/opt/videocall/deploy/backup.sh
+# /opt/visioncall/data/backups and are kept for 14 days.
+ExecStart=/opt/visioncall/deploy/backup.sh
 
-# Same sandboxing as videocall.service.
+# Same sandboxing as visioncall.service.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/videocall/data
+ReadWritePaths=/opt/visioncall/data

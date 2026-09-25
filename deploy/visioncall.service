@@ -4,14 +4,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Installed by scripts/install-linux.sh, which creates the videocall user and
-# /opt/videocall/{videocall,.env,data}. The app reads /opt/videocall/.env
+# Installed by scripts/install-linux.sh, which creates the visioncall user and
+# /opt/visioncall/{visioncall,.env,data}. The app reads /opt/visioncall/.env
 # itself because it runs from that directory.
 Type=simple
-User=videocall
-Group=videocall
-WorkingDirectory=/opt/videocall
-ExecStart=/opt/videocall/videocall
+User=visioncall
+Group=visioncall
+WorkingDirectory=/opt/visioncall
+ExecStart=/opt/visioncall/visioncall
 Restart=on-failure
 RestartSec=3
 
@@ -20,7 +20,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/videocall/data
+ReadWritePaths=/opt/visioncall/data
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
 [Install]

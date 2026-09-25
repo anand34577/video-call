@@ -1,4 +1,4 @@
-// Package logger provides a structured slog.Logger for the video-call server.
+// Package logger provides a structured slog.Logger for the vision-call server.
 package logger
 
 import (

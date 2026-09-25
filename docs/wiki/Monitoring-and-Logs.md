@@ -4,10 +4,10 @@
 
 | Installed with | See the logs with |
 |---|---|
-| Docker | `docker logs -f videocall` |
+| Docker | `docker logs -f visioncall` |
 | Docker Compose | `docker compose logs -f app` |
-| Linux | `journalctl -u videocall -f` |
-| Windows | `C:\ProgramData\VisionCall\videocall.log` |
+| Linux | `journalctl -u visioncall -f` |
+| Windows | `C:\ProgramData\VisionCall\visioncall.log` |
 | Run by hand | printed in the terminal |
 
 For more detail while you investigate a problem, set **Log level** to `debug` in **Admin > Server Settings**. It takes effect straight away; set it back to `info` afterwards.
@@ -32,7 +32,7 @@ Returns Prometheus metrics without signing in: uptime, number of accounts, peopl
 
 ```yaml
 scrape_configs:
-  - job_name: videocall
+  - job_name: visioncall
     scheme: https
     tls_config:
       insecure_skip_verify: true   # only needed with the automatic certificate

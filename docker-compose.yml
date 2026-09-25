@@ -6,12 +6,12 @@
 # Then open https://<this computer's IP>:8443 from any device on your network.
 # No configuration is needed. To change a setting, create a .env file next to
 # this one (see .env.example) and run `docker compose up -d` again.
-name: videocall
+name: visioncall
 
 services:
   app:
-    image: ghcr.io/anand34577/video-call:${VIDEOCALL_VERSION:-latest}
-    container_name: videocall
+    image: ghcr.io/anand34577/vision-call:${VISIONCALL_VERSION:-latest}
+    container_name: visioncall
     restart: unless-stopped
     ports:
       - "8443:8443"      # HTTPS web app
@@ -21,7 +21,7 @@ services:
       - path: .env
         required: false
     volumes:
-      - videocall-data:/data
+      - visioncall-data:/data
 
   # Optional TURN relay. Only needed when devices can't reach each other
   # directly, such as some VPN meshes or networks split into several subnets.
@@ -30,12 +30,12 @@ services:
   coturn:
     profiles: [turn]
     image: coturn/coturn:4.6
-    container_name: videocall-turn
+    container_name: visioncall-turn
     restart: unless-stopped
     network_mode: host
     command: >
       -n
-      --realm=videocall.lan
+      --realm=visioncall.lan
       --fingerprint
       --lt-cred-mech
       --use-auth-secret
@@ -50,4 +50,4 @@ services:
       --log-file=stdout
 
 volumes:
-  videocall-data:
+  visioncall-data:

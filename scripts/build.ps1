@@ -57,12 +57,12 @@ try {
         }
         $goos = $parts[0]
         $goarch = $parts[1]
-        $name = "videocall-server-$goos-$goarch"
+        $name = "visioncall-server-$goos-$goarch"
         if ($goos -eq "windows") { $name += ".exe" }
         $env:GOOS = $goos
         $env:GOARCH = $goarch
         Write-Host "==> compiling $goos/$goarch -> dist\$name"
-        go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=$version" -o (Join-Path $outDir $name) ./cmd/server
+        go build -trimpath -ldflags="-s -w -X visioncall/internal/config.Version=$version" -o (Join-Path $outDir $name) ./cmd/server
         if ($LASTEXITCODE -ne 0) { throw "go build failed for $goos/$goarch" }
     }
 } finally {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"videocall/internal/db"
+	"visioncall/internal/db"
 )
 
 type ctxKey int

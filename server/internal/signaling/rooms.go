@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"videocall/internal/db"
-	"videocall/internal/sfu"
+	"visioncall/internal/db"
+	"visioncall/internal/sfu"
 )
 
 // Conference rooms are bound to chat groups: room id "group:<groupID>".

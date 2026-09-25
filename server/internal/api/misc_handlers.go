@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"videocall/internal/config"
-	"videocall/internal/ice"
+	"visioncall/internal/config"
+	"visioncall/internal/ice"
 )
 
 type iceServer struct {
@@ -77,7 +77,7 @@ func (a *API) storageStats() storageStats {
 		return storageStatsCached
 	}
 	dbSize := int64(0)
-	if info, err := os.Stat(filepath.Join(a.cfg.DataDir, "videocall.db")); err == nil {
+	if info, err := os.Stat(filepath.Join(a.cfg.DataDir, "visioncall.db")); err == nil {
 		dbSize = info.Size()
 	}
 	storageStatsCached = storageStats{
@@ -122,22 +122,22 @@ func (a *API) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n%s %v\n", name, help, name, name, value)
 	}
 
-	gauge("videocall_uptime_seconds", "Seconds since the server started.", time.Since(a.startedAt).Seconds())
+	gauge("visioncall_uptime_seconds", "Seconds since the server started.", time.Since(a.startedAt).Seconds())
 	if users, err := a.db.CountUsers(); err == nil {
-		gauge("videocall_users_total", "Total registered user accounts.", float64(users))
+		gauge("visioncall_users_total", "Total registered user accounts.", float64(users))
 	}
 	if a.hub != nil {
-		gauge("videocall_online_users", "Currently connected (websocket) users.", float64(a.hub.OnlineCount()))
-		gauge("videocall_active_calls", "Currently active calls (1:1 + conference rooms).", float64(a.hub.ActiveCalls()))
+		gauge("visioncall_online_users", "Currently connected (websocket) users.", float64(a.hub.OnlineCount()))
+		gauge("visioncall_active_calls", "Currently active calls (1:1 + conference rooms).", float64(a.hub.ActiveCalls()))
 	}
 	st := a.storageStats()
-	gauge("videocall_db_bytes", "Size of the sqlite database file on disk.", float64(st.DBBytes))
-	gauge("videocall_files_bytes", "Total size of uploaded files on disk.", float64(st.FilesBytes))
+	gauge("visioncall_db_bytes", "Size of the sqlite database file on disk.", float64(st.DBBytes))
+	gauge("visioncall_files_bytes", "Total size of uploaded files on disk.", float64(st.FilesBytes))
 
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	gauge("videocall_go_goroutines", "Number of running goroutines.", float64(runtime.NumGoroutine()))
-	gauge("videocall_go_heap_alloc_bytes", "Bytes of allocated heap objects.", float64(mem.HeapAlloc))
+	gauge("visioncall_go_goroutines", "Number of running goroutines.", float64(runtime.NumGoroutine()))
+	gauge("visioncall_go_heap_alloc_bytes", "Bytes of allocated heap objects.", float64(mem.HeapAlloc))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

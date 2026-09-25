@@ -26,15 +26,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 
-	"videocall/internal/api"
-	"videocall/internal/auth"
-	"videocall/internal/config"
-	"videocall/internal/db"
-	"videocall/internal/logger"
-	"videocall/internal/oidc"
-	"videocall/internal/settings"
-	"videocall/internal/signaling"
-	"videocall/static"
+	"visioncall/internal/api"
+	"visioncall/internal/auth"
+	"visioncall/internal/config"
+	"visioncall/internal/db"
+	"visioncall/internal/logger"
+	"visioncall/internal/oidc"
+	"visioncall/internal/settings"
+	"visioncall/internal/signaling"
+	"visioncall/static"
 )
 
 func main() {
@@ -86,7 +86,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	driver, dsn, err := cfg.DBDriverAndDSN(filepath.Join(cfg.DataDir, "videocall.db"))
+	renameLegacyDB(cfg.DataDir, lg)
+	driver, dsn, err := cfg.DBDriverAndDSN(filepath.Join(cfg.DataDir, "visioncall.db"))
 	if err != nil {
 		lg.Error("invalid DATABASE_URL", "err", err)
 		os.Exit(1)
@@ -528,7 +529,7 @@ func ensureSelfSignedCert(dataDir string, extraHosts []string, lg *slog.Logger) 
 	template := x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			Organization: []string{"Video Call App (Self-Signed)"},
+			Organization: []string{"Vision Call (Self-Signed)"},
 			CommonName:   "Vision Call LAN Root CA",
 		},
 		NotBefore:             time.Now().Add(-5 * time.Minute),
@@ -697,4 +698,25 @@ func localCertificateNames(extraHosts ...string) (dnsNames []string, ipAddresses
 		}
 	}
 	return dnsNames, ipAddresses
+}
+
+// renameLegacyDB moves a database created before the project was renamed
+// (videocall.db and its -wal/-shm files) to the current name, so upgrading
+// keeps all existing data.
+func renameLegacyDB(dataDir string, lg *slog.Logger) {
+	oldPath := filepath.Join(dataDir, "videocall.db")
+	newPath := filepath.Join(dataDir, "visioncall.db")
+	if _, err := os.Stat(newPath); err == nil {
+		return
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		return
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Rename(oldPath+suffix, newPath+suffix); err != nil && !os.IsNotExist(err) {
+			lg.Error("could not rename the old database file", "from", oldPath+suffix, "err", err)
+			os.Exit(1)
+		}
+	}
+	lg.Info("renamed database file", "from", oldPath, "to", newPath)
 }

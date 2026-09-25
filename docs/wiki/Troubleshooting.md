@@ -4,7 +4,7 @@ Start by looking at the logs (see [Monitoring and Logs](Monitoring-and-Logs)). M
 
 ## I can't open the page at all
 
-- Check the server is running: `docker ps`, `systemctl status videocall` or `Get-Service VisionCall`.
+- Check the server is running: `docker ps`, `systemctl status visioncall` or `Get-Service VisionCall`.
 - Open it from the server itself first: `https://localhost:8443`. If that works but other devices can't connect, a firewall is blocking the ports. See [Networking and Firewall](Networking-and-Firewall#ports).
 - Make sure you typed `https://` and the port `:8443`.
 - On Windows, the network must be set to **Private** in Settings > Network & internet, or Windows Firewall may block other devices.
@@ -63,4 +63,4 @@ Run `Set-ExecutionPolicy -Scope Process Bypass` in the same PowerShell window, t
 
 ## Still stuck?
 
-Open an [issue](https://github.com/anand34577/video-call/issues) with what you did, what happened, and the relevant part of the logs. Remove passwords and secrets before posting.
+Open an [issue](https://github.com/anand34577/vision-call/issues) with what you did, what happened, and the relevant part of the logs. Remove passwords and secrets before posting.

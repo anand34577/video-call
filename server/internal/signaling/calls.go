@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"videocall/internal/db"
+	"visioncall/internal/db"
 )
 
 const ringTimeout = 45 * time.Second

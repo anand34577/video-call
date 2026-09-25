@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
 )
 
 var usernameRE = regexp.MustCompile(`^[a-zA-Z0-9._-]{2,32}$`)

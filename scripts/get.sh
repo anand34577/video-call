@@ -1,17 +1,17 @@
 #!/bin/sh
 # Vision Call one-line installer for Linux and macOS.
 #
-#   curl -fsSL https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.sh | sudo sh
+#   curl -fsSL https://raw.githubusercontent.com/anand34577/vision-call/main/scripts/get.sh | sudo sh
 #
 # Linux: downloads the latest release for your CPU, checks its checksum and
 # installs it as a systemd service (via the bundled install-linux.sh).
-# macOS: installs the videocall command to /usr/local/bin.
+# macOS: installs the visioncall command to /usr/local/bin.
 #
 # Install a specific version instead of the latest:
-#   curl -fsSL .../get.sh | sudo VIDEOCALL_VERSION=v1.0.1 sh
+#   curl -fsSL .../get.sh | sudo VISIONCALL_VERSION=v1.0.1 sh
 set -eu
 
-REPO="anand34577/video-call"
+REPO="anand34577/vision-call"
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -32,14 +32,14 @@ case "$(uname -m)" in
 esac
 [ "$os/$arch" = "darwin/amd64" ] && die "only Apple Silicon Macs have a prebuilt binary; use Docker on Intel Macs"
 
-version="${VIDEOCALL_VERSION:-}"
+version="${VISIONCALL_VERSION:-}"
 if [ -z "$version" ]; then
   version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
     sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
-  [ -n "$version" ] || die "could not find the latest release; set VIDEOCALL_VERSION=vX.Y.Z"
+  [ -n "$version" ] || die "could not find the latest release; set VISIONCALL_VERSION=vX.Y.Z"
 fi
 
-name="videocall_${version}_${os}-${arch}"
+name="visioncall_${version}_${os}-${arch}"
 base="https://github.com/$REPO/releases/download/$version"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -63,10 +63,10 @@ tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 if [ "$os" = "linux" ]; then
   bash "$tmp/$name/install-linux.sh"
 else
-  install -m 0755 "$tmp/$name/videocall" /usr/local/bin/videocall
+  install -m 0755 "$tmp/$name/visioncall" /usr/local/bin/visioncall
   say ""
   say "Vision Call $version is installed. Start it with:"
-  say "  mkdir -p ~/videocall && cd ~/videocall && videocall"
+  say "  mkdir -p ~/visioncall && cd ~/visioncall && visioncall"
   say "Then open https://localhost:8443 and sign in as admin with the password"
   say "printed on first start."
 fi

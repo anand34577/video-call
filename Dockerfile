@@ -23,13 +23,13 @@ COPY --from=web /src/web/dist ./static/dist
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=${VERSION}" -o /out/videocall-server ./cmd/server
+    go build -trimpath -ldflags="-s -w -X visioncall/internal/config.Version=${VERSION}" -o /out/visioncall-server ./cmd/server
 
 # ---- runtime ----
 FROM alpine:3.21
 RUN adduser -D -u 10001 app && apk add --no-cache ca-certificates tzdata \
  && mkdir /data && chown app:app /data
-COPY --from=server /out/videocall-server /usr/local/bin/videocall-server
+COPY --from=server /out/visioncall-server /usr/local/bin/visioncall-server
 # /data owned by app so a fresh named volume is writable; a bind mount keeps
 # the host dir's owner instead (chown it to 10001).
 ENV DATA_DIR=/data
@@ -44,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -q -O /dev/null http://127.0.0.1:8080/api/healthz \
    || wget -q -O /dev/null --no-check-certificate https://127.0.0.1:8443/api/healthz \
    || exit 1
-ENTRYPOINT ["videocall-server"]
+ENTRYPOINT ["visioncall-server"]

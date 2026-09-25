@@ -6,7 +6,7 @@ You don't need the app to use Vision Call on a phone. Any phone browser works, a
 
 ## Install
 
-1. On the phone, open the [latest release](https://github.com/anand34577/video-call/releases/latest) and download `videocall_<version>_android.apk`.
+1. On the phone, open the [latest release](https://github.com/anand34577/vision-call/releases/latest) and download `visioncall_<version>_android.apk`.
 2. Open the downloaded file. Android asks for permission to install apps from your browser or file manager the first time; allow it.
 3. Tap **Install**.
 
@@ -38,7 +38,7 @@ Download the newer APK from the releases page and install it over the old one. Y
 Each APK has a matching `.sha256` file on the release page. To check the file on a computer:
 
 ```bash
-sha256sum -c videocall_v1.0.1_android.apk.sha256
+sha256sum -c visioncall_v1.0.1_android.apk.sha256
 ```
 
 ## Permissions the app asks for

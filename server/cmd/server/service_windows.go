@@ -18,7 +18,7 @@ var isService bool
 // setupService detects a Service Control Manager launch (see
 // scripts/install-service.ps1). Services start in System32 with no console,
 // so chdir next to the exe (where .env and ./data live) and send logs to
-// videocall.log there.
+// visioncall.log there.
 // The log file is never rotated, so trim it by hand if it gets large.
 func setupService() {
 	ok, err := svc.IsWindowsService()
@@ -32,7 +32,7 @@ func setupService() {
 	}
 	dir := filepath.Dir(exe)
 	_ = os.Chdir(dir)
-	if f, err := os.OpenFile(filepath.Join(dir, "videocall.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if f, err := os.OpenFile(filepath.Join(dir, "visioncall.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		os.Stdout, os.Stderr = f, f
 		log.SetOutput(f)
 	}

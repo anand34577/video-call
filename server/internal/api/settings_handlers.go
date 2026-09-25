@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
+	"visioncall/internal/auth"
 )
 
 // handleListSettings powers the admin Settings screen: every setting the

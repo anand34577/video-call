@@ -8,10 +8,10 @@ Open `https://<server-ip>:8443` and sign in as `admin` with the password from th
 
 | Installed with | Find the password with |
 |---|---|
-| Docker | `docker logs videocall 2>&1 \| grep -i password` |
+| Docker | `docker logs visioncall 2>&1 \| grep -i password` |
 | Docker Compose | `docker compose logs app \| grep -i password` |
-| Linux | `journalctl -u videocall \| grep -i password` |
-| Windows | Search for `password` in `C:\ProgramData\VisionCall\videocall.log` |
+| Linux | `journalctl -u visioncall \| grep -i password` |
+| Windows | Search for `password` in `C:\ProgramData\VisionCall\visioncall.log` |
 
 The password is only generated once, the first time the server starts with an empty database. To choose it yourself, set `BOOTSTRAP_ADMIN_PASSWORD` before the first start.
 

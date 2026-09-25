@@ -66,7 +66,7 @@ Vision Call then serves plain HTTP on port 8080 and reads the `X-Forwarded-*` he
 **Caddy:**
 
 ```
-videocall.example.com {
+visioncall.example.com {
     reverse_proxy 127.0.0.1:8080
 }
 ```
@@ -76,7 +76,7 @@ videocall.example.com {
 ```nginx
 server {
     listen 443 ssl;
-    server_name videocall.example.com;
+    server_name visioncall.example.com;
     # ssl_certificate and ssl_certificate_key lines here
 
     client_max_body_size 60m;   # a little above MAX_FILE_MB

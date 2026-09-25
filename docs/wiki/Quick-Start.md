@@ -7,16 +7,16 @@ Pick one way to install. Each one takes a single command and needs no configurat
 If you have [Docker](https://docs.docker.com/get-docker/) installed, run:
 
 ```bash
-docker run -d --name videocall --restart unless-stopped \
+docker run -d --name visioncall --restart unless-stopped \
   -p 8443:8443 -p 8080:8080 -p 7882:7882/udp \
-  -v videocall-data:/data \
-  ghcr.io/anand34577/video-call:latest
+  -v visioncall-data:/data \
+  ghcr.io/anand34577/vision-call:latest
 ```
 
 Then get the admin password:
 
 ```bash
-docker logs videocall 2>&1 | grep -i password
+docker logs visioncall 2>&1 | grep -i password
 ```
 
 Prefer Docker Compose? See [Install with Docker](Install-with-Docker).
@@ -24,7 +24,7 @@ Prefer Docker Compose? See [Install with Docker](Install-with-Docker).
 ## Option 2: Linux server
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/anand34577/vision-call/main/scripts/get.sh | sudo sh
 ```
 
 This installs Vision Call as a system service that starts on boot, opens the firewall ports and prints the address and admin password when it's done. Details: [Install on Linux](Install-on-Linux).
@@ -34,7 +34,7 @@ This installs Vision Call as a system service that starts on boot, opens the fir
 Open **PowerShell as Administrator** (right-click the Start button, then "Terminal (Admin)" or "Windows PowerShell (Admin)") and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.ps1 | iex
+irm https://raw.githubusercontent.com/anand34577/vision-call/main/scripts/get.ps1 | iex
 ```
 
 This installs Vision Call as a Windows service that starts with Windows and prints the address and admin password when it's done. Details: [Install on Windows](Install-on-Windows).
@@ -50,4 +50,4 @@ Not sure of the server's IP address? On Linux run `hostname -I`, on Windows run 
 
 ## Android phones
 
-Download the APK from the [latest release](https://github.com/anand34577/video-call/releases/latest) and install it. When it asks for a server, enter `http://<server-ip>:8080`. See [Android App](Android-App).
+Download the APK from the [latest release](https://github.com/anand34577/vision-call/releases/latest) and install it. When it asks for a server, enter `http://<server-ip>:8080`. See [Android App](Android-App).

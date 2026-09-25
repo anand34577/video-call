@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
 )
 
 // roomCodeAlphabet skips visually-ambiguous characters (0/O, 1/I/L) so a

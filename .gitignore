@@ -17,8 +17,8 @@
 # ---- build artifacts ----
 /dist/
 *.exe
-videocall-server
-videocall-server.exe
+visioncall-server
+visioncall-server.exe
 web/dist/
 server/static/dist/*
 !server/static/dist/.gitkeep

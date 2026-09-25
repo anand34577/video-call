@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"videocall/internal/auth"
+	"visioncall/internal/auth"
 )
 
 type loginRequest struct {

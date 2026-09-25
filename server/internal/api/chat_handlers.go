@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
 )
 
 // enrichMessages attaches sender briefs, file metadata, reply previews, and

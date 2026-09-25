@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"videocall/internal/auth"
+	"visioncall/internal/auth"
 )
 
 // Standalone private rooms (not tied to a chat group) live at

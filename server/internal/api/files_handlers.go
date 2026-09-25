@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
+	"visioncall/internal/auth"
 )
 
 // uploadLocks serializes concurrent uploads from the same user around the

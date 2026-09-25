@@ -35,7 +35,7 @@ func HashPassword(password string) (string, error) {
 // exists so login can spend the same argon2 cost on an unknown username as
 // on a known one, closing the timing side channel that would otherwise let
 // an attacker distinguish "no such user" (fast) from "wrong password" (slow).
-var dummyHash, _ = HashPassword("videocall-timing-dummy")
+var dummyHash, _ = HashPassword("visioncall-timing-dummy")
 
 // VerifyDummyPassword runs a real argon2id verification against a fixed,
 // unusable hash. Call it on the "unknown username" login path so failed

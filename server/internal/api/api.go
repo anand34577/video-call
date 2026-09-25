@@ -16,11 +16,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"videocall/internal/auth"
-	"videocall/internal/config"
-	"videocall/internal/db"
-	"videocall/internal/oidc"
-	"videocall/internal/settings"
+	"visioncall/internal/auth"
+	"visioncall/internal/config"
+	"visioncall/internal/db"
+	"visioncall/internal/oidc"
+	"visioncall/internal/settings"
 )
 
 // PresenceProvider is what the API needs from the signaling hub.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"videocall/internal/db"
+	"visioncall/internal/db"
 )
 
 type dbMessage = db.Message

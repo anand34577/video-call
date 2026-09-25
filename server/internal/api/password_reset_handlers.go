@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
-	"videocall/internal/mail"
-	"videocall/internal/settings"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
+	"visioncall/internal/mail"
+	"visioncall/internal/settings"
 )
 
 const passwordResetTTL = 30 * time.Minute

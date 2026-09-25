@@ -36,13 +36,13 @@ for target in "${targets[@]}"; do
     echo "error: invalid target '$target' (expected os/arch)" >&2
     exit 1
   fi
-  name="videocall-server-$GOOS-$GOARCH"
+  name="visioncall-server-$GOOS-$GOARCH"
   if [ "$GOOS" = "windows" ]; then
     name="$name.exe"
   fi
   echo "==> compiling $GOOS/$GOARCH -> dist/$name"
   (cd server && CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -ldflags="-s -w -X videocall/internal/config.Version=$version" -o "../dist/$name" ./cmd/server)
+    go build -trimpath -ldflags="-s -w -X visioncall/internal/config.Version=$version" -o "../dist/$name" ./cmd/server)
 done
 
 echo "==> done: binaries in ./dist"

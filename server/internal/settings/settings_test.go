@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"videocall/internal/config"
-	"videocall/internal/db"
+	"visioncall/internal/config"
+	"visioncall/internal/db"
 )
 
 func openTestDB(t *testing.T) *db.DB {

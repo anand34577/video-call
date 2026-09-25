@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"videocall/internal/auth"
+	"visioncall/internal/auth"
 )
 
 type registerDeviceKeyRequest struct {

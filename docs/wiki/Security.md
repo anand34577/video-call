@@ -30,7 +30,7 @@ Vision Call is built for private networks: an office LAN, a home network or a VP
 - Pages are served with a Content Security Policy and other hardening headers.
 - Executable file types are blocked from upload by default.
 - Admin actions are written to the audit log.
-- The Docker image runs as an unprivileged user, and the Linux service runs as a dedicated `videocall` account with a read-only view of the system.
+- The Docker image runs as an unprivileged user, and the Linux service runs as a dedicated `visioncall` account with a read-only view of the system.
 
 ## What you should do
 
@@ -42,4 +42,4 @@ Vision Call is built for private networks: an office LAN, a home network or a VP
 
 ## Reporting a vulnerability
 
-Please report security problems privately through [GitHub security advisories](https://github.com/anand34577/video-call/security/advisories/new) rather than in a public issue.
+Please report security problems privately through [GitHub security advisories](https://github.com/anand34577/vision-call/security/advisories/new) rather than in a public issue.

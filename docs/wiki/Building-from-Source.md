@@ -72,7 +72,7 @@ No C compiler is needed, so every platform builds from any machine.
 Build the Docker image:
 
 ```bash
-docker build -t videocall .
+docker build -t visioncall .
 ```
 
 Build the Android app (unsigned):

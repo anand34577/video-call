@@ -11,11 +11,11 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"videocall/internal/auth"
-	"videocall/internal/config"
-	"videocall/internal/db"
-	"videocall/internal/settings"
-	"videocall/internal/sfu"
+	"visioncall/internal/auth"
+	"visioncall/internal/config"
+	"visioncall/internal/db"
+	"visioncall/internal/settings"
+	"visioncall/internal/sfu"
 )
 
 // Envelope is the single WS message shape in both directions.

@@ -5,12 +5,12 @@ Vision Call runs without any configuration. Change settings only when you need s
 ## Three ways to change a setting
 
 1. **In the app**: **Admin > Server Settings**. Most settings change immediately, no restart. This is the easiest option.
-2. **In the `.env` file** next to the program. Remove the `#` in front of a line, change the value, save and restart. Every setting is listed with an explanation in [.env.example](https://github.com/anand34577/video-call/blob/main/.env.example).
+2. **In the `.env` file** next to the program. Remove the `#` in front of a line, change the value, save and restart. Every setting is listed with an explanation in [.env.example](https://github.com/anand34577/vision-call/blob/main/.env.example).
 3. **As an environment variable**, for example `-e MAX_FILE_MB=100` with `docker run`.
 
 | Installed with | `.env` file | Restart with |
 |---|---|---|
-| Linux installer | `/opt/videocall/.env` | `sudo systemctl restart videocall` |
+| Linux installer | `/opt/visioncall/.env` | `sudo systemctl restart visioncall` |
 | Windows installer | `C:\ProgramData\VisionCall\.env` | `Restart-Service VisionCall` |
 | Docker Compose | `.env` next to `docker-compose.yml` | `docker compose up -d` |
 | Docker run | use `-e NAME=value` | recreate the container |

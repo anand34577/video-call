@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
 )
 
 // audit records one audit-log entry for the current request's actor. Errors

@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"videocall/internal/db"
+	"visioncall/internal/db"
 )
 
 const CookieName = "vc_session"

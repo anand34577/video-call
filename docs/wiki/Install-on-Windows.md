@@ -8,7 +8,7 @@ Works on Windows 10, Windows 11 and Windows Server 2019 or newer, on both regula
 2. Paste this and press Enter:
 
    ```powershell
-   irm https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.ps1 | iex
+   irm https://raw.githubusercontent.com/anand34577/vision-call/main/scripts/get.ps1 | iex
    ```
 
 The installer:
@@ -19,11 +19,11 @@ The installer:
 4. Adds a Windows Firewall rule so other devices can connect.
 5. Prints the address to open and the first admin password.
 
-To install a specific version, run `$env:VIDEOCALL_VERSION = "v1.0.1"` first, in the same window.
+To install a specific version, run `$env:VISIONCALL_VERSION = "v1.0.1"` first, in the same window.
 
 ## Install from a downloaded file
 
-1. Download `videocall_<version>_windows-amd64.zip` from the [releases page](https://github.com/anand34577/video-call/releases) (`windows-arm64` for ARM PCs such as Surface Pro X or Snapdragon laptops).
+1. Download `visioncall_<version>_windows-amd64.zip` from the [releases page](https://github.com/anand34577/vision-call/releases) (`windows-arm64` for ARM PCs such as Surface Pro X or Snapdragon laptops).
 2. Right-click the zip, choose **Properties**, tick **Unblock** if you see it, then **Extract All**.
 3. Open PowerShell as Administrator in the extracted folder and run:
 
@@ -36,10 +36,10 @@ To install a specific version, run `$env:VIDEOCALL_VERSION = "v1.0.1"` first, in
 
 | What | Where |
 |---|---|
-| Program | `C:\ProgramData\VisionCall\videocall.exe` |
+| Program | `C:\ProgramData\VisionCall\visioncall.exe` |
 | Settings | `C:\ProgramData\VisionCall\.env` |
 | Database, uploads, certificate | `C:\ProgramData\VisionCall\data` |
-| Log file | `C:\ProgramData\VisionCall\videocall.log` |
+| Log file | `C:\ProgramData\VisionCall\visioncall.log` |
 
 The folder is readable only by administrators, because it holds the key that signs everyone's logins. `C:\ProgramData` is hidden by default; type the path into File Explorer's address bar to open it.
 
@@ -50,7 +50,7 @@ Run these in PowerShell as Administrator, or use the **Services** app (`services
 ```powershell
 Get-Service VisionCall                  # is it running?
 Restart-Service VisionCall              # after editing the .env file
-Get-Content C:\ProgramData\VisionCall\videocall.log -Tail 50 -Wait   # follow the log
+Get-Content C:\ProgramData\VisionCall\visioncall.log -Tail 50 -Wait   # follow the log
 ```
 
 ## Change a setting
@@ -72,4 +72,4 @@ Remove-Item -Recurse -Force C:\ProgramData\VisionCall   # deletes all data, back
 
 ## Run it without installing
 
-Double-click `videocall.exe` in the extracted folder, or run it from a terminal. It keeps its data in a `data` folder next to the program and stops when you close the window. Windows may ask whether to allow it through the firewall; allow it on private networks.
+Double-click `visioncall.exe` in the extracted folder, or run it from a terminal. It keeps its data in a `data` folder next to the program and stops when you close the window. Windows may ask whether to allow it through the firewall; allow it on private networks.

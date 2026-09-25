@@ -22,9 +22,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"videocall/internal/config"
-	"videocall/internal/db"
-	"videocall/internal/logger"
+	"visioncall/internal/config"
+	"visioncall/internal/db"
+	"visioncall/internal/logger"
 )
 
 type Kind string

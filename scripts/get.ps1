@@ -1,26 +1,26 @@
 # Vision Call one-line installer for Windows. In PowerShell run as
 # Administrator:
 #
-#   irm https://raw.githubusercontent.com/anand34577/video-call/main/scripts/get.ps1 | iex
+#   irm https://raw.githubusercontent.com/anand34577/vision-call/main/scripts/get.ps1 | iex
 #
 # Downloads the latest release for your CPU, checks its checksum and installs
 # it as the "VisionCall" Windows service (via the bundled install-service.ps1).
-# To install a specific version, set $env:VIDEOCALL_VERSION = "v1.0.1" first.
+# To install a specific version, set $env:VISIONCALL_VERSION = "v1.0.1" first.
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with the progress bar
-$repo = "anand34577/video-call"
+$repo = "anand34577/vision-call"
 
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw "Please run PowerShell as Administrator and try again." }
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-$version = $env:VIDEOCALL_VERSION
+$version = $env:VISIONCALL_VERSION
 if (-not $version) {
     $version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
 }
 
-$name = "videocall_${version}_windows-$arch"
+$name = "visioncall_${version}_windows-$arch"
 $base = "https://github.com/$repo/releases/download/$version"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null

@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"videocall/internal/db"
+	"visioncall/internal/db"
 )
 
 const (

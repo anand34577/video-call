@@ -9,9 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"videocall/internal/auth"
-	"videocall/internal/db"
-	"videocall/internal/oidc"
+	"visioncall/internal/auth"
+	"visioncall/internal/db"
+	"visioncall/internal/oidc"
 )
 
 // handleOIDCConfig is public — the login page needs to know whether to show
