@@ -1,0 +1,22 @@
+[Unit]
+Description=Vision Call daily database backup
+# Don't fight the main service for the sqlite file at the exact moment it
+# starts/restarts; otherwise unrelated to it — the backup flag just opens a
+# read snapshot of the DB, the server keeps running normally throughout.
+After=videocall.service
+
+[Service]
+Type=oneshot
+User=videocall
+Group=videocall
+WorkingDirectory=/opt/videocall
+# Same layout backup.sh already assumes: binary at /opt/videocall/videocall,
+# data dir at /opt/videocall/data. Override via Environment= lines here if
+# yours differs, or edit deploy/backup.sh's defaults directly.
+ExecStart=/opt/videocall/deploy/backup.sh
+
+# Same sandboxing as videocall.service.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/videocall/data

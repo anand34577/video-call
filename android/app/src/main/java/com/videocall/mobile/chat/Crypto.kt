@@ -1,0 +1,274 @@
+package com.videocall.mobile.chat
+
+import android.content.Context
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.decodeFromJsonElement
+import java.math.BigInteger
+import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.PrivateKey
+import java.security.PublicKey
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import com.videocall.mobile.net.DeviceKey
+import com.videocall.mobile.net.Prefs
+import com.videocall.mobile.session.SessionManager
+
+/**
+ * Client-side E2E chat encryption — a straight port of web/src/lib/crypto.ts
+ * to the JVM: ECDH P-256 per-device keypair, AES-256-GCM content key per
+ * message, the content key wrapped per-recipient-device via
+ * ECDH(myPriv, theirPub). The server only ever sees public keys + ciphertext
+ * (see api.registerDeviceKey/deviceKeys). No ratcheting/forward-secrecy
+ * beyond "one fresh AES key per message", same as the web client.
+ *
+ * The private key is generated on-device and stored in EncryptedSharedPreferences
+ * (an Android-Keystore-wrapped file) — it never leaves the device and is
+ * never sent anywhere; only the public key is uploaded.
+ */
+object Crypto {
+    private const val CURVE = "secp256r1" // NIST P-256, same curve WebCrypto calls "P-256"
+    private const val PREFS = "vc_e2e_keys"
+    // Keys are stored per account ("priv:<userId>"): on a shared phone the
+    // next person to sign in must not inherit — and publish under their own
+    // account — the previous user's private key. The unsuffixed names are the
+    // old device-wide record, adopted once by its real owner (see below).
+    private const val LEGACY_PRIV = "priv"
+    private const val LEGACY_PUB = "pub_jwk"
+    private fun privKey(userId: Long) = "priv:$userId"
+    private fun pubKey(userId: Long) = "pub_jwk:$userId"
+
+    @kotlinx.serialization.Serializable
+    private data class WrappedKeyEntry(
+        val user_id: Long,
+        val device_id: String,
+        val wrapped_key: String,
+        val wrap_iv: String,
+        val sender_pub_jwk: JsonObject,
+    )
+
+    data class KeyPairBundle(val private: PrivateKey, val public: PublicKey, val publicJwk: JsonObject)
+
+    private var cached: KeyPairBundle? = null
+    private var cachedFor: Long? = null
+
+    private fun prefs(context: Context) = EncryptedSharedPreferences.create(
+        context,
+        PREFS,
+        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    private fun currentUserId(): Long =
+        SessionManager.me.value?.id ?: throw IllegalStateException("E2E keys are not available before sign-in")
+
+    private suspend fun getOrCreateKeyPair(context: Context): KeyPairBundle {
+        val userId = currentUserId()
+        if (cachedFor == userId) cached?.let { return it }
+        val p = prefs(context)
+        val kf = KeyFactory.getInstance("EC")
+        if (!p.contains(privKey(userId))) adoptLegacyKeyPair(context, userId)
+        val storedPriv = p.getString(privKey(userId), null)
+        val storedPub = p.getString(pubKey(userId), null)
+        val bundle = if (storedPriv != null && storedPub != null) {
+            val priv = kf.generatePrivate(PKCS8EncodedKeySpec(Base64.decode(storedPriv, Base64.NO_WRAP)))
+            val jwk = json.parseToJsonElement(storedPub) as JsonObject
+            KeyPairBundle(priv, publicKeyFromJwk(jwk), jwk)
+        } else {
+            val gen = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec(CURVE)) }
+            val pair = gen.generateKeyPair()
+            val jwk = publicKeyToJwk(pair.public as java.security.interfaces.ECPublicKey)
+            p.edit()
+                .putString(privKey(userId), Base64.encodeToString(pair.private.encoded, Base64.NO_WRAP))
+                .putString(pubKey(userId), jwk.toString())
+                .apply()
+            KeyPairBundle(pair.private, pair.public, jwk)
+        }
+        cached = bundle
+        cachedFor = userId
+        return bundle
+    }
+
+    /**
+     * Moves the old device-wide keypair to [userId]'s record — but only if the
+     * server has exactly that public key registered as this user's key for this
+     * device, i.e. it really was theirs. Anyone else gets a fresh keypair.
+     */
+    private suspend fun adoptLegacyKeyPair(context: Context, userId: Long) {
+        val p = prefs(context)
+        val legacyPriv = p.getString(LEGACY_PRIV, null) ?: return
+        val legacyPub = p.getString(LEGACY_PUB, null) ?: return
+        val registered = runCatching { SessionManager.api.deviceKeys(listOf(userId)) }.getOrNull()
+            ?.firstOrNull { it.device_id == Prefs.deviceId(context) } ?: return
+        val mine = runCatching { json.parseToJsonElement(registered.public_key_jwk) as JsonObject }.getOrNull() ?: return
+        val legacy = json.parseToJsonElement(legacyPub) as JsonObject
+        if (mine["x"] != legacy["x"] || mine["y"] != legacy["y"]) return
+        p.edit()
+            .putString(privKey(userId), legacyPriv)
+            .putString(pubKey(userId), legacyPub)
+            .remove(LEGACY_PRIV)
+            .remove(LEGACY_PUB)
+            .apply()
+    }
+
+    /**
+     * Publishes this device's public key for the signed-in account. Must run
+     * after login (the endpoint needs a session) — calling it at app start
+     * used to 401 silently on a fresh login, so nobody could encrypt to this
+     * phone until the app was restarted.
+     */
+    suspend fun ensureDeviceRegistered(context: Context) {
+        val bundle = runCatching { getOrCreateKeyPair(context) }.getOrNull() ?: return
+        runCatching { SessionManager.api.registerDeviceKey(Prefs.deviceId(context), bundle.publicJwk.toString()) }
+    }
+
+    private fun fieldElement(n: BigInteger, size: Int = 32): ByteArray {
+        val raw = n.toByteArray()
+        val trimmed = if (raw.size > size) raw.copyOfRange(raw.size - size, raw.size) else raw
+        if (trimmed.size == size) return trimmed
+        val out = ByteArray(size)
+        System.arraycopy(trimmed, 0, out, size - trimmed.size, trimmed.size)
+        return out
+    }
+
+    private fun b64url(bytes: ByteArray): String =
+        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun b64urlDecode(s: String): ByteArray = Base64.decode(s, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+
+    private fun publicKeyToJwk(pub: java.security.interfaces.ECPublicKey): JsonObject = JsonObject(mapOf(
+        "kty" to JsonPrimitive("EC"),
+        "crv" to JsonPrimitive("P-256"),
+        "x" to JsonPrimitive(b64url(fieldElement(pub.w.affineX))),
+        "y" to JsonPrimitive(b64url(fieldElement(pub.w.affineY))),
+        "ext" to JsonPrimitive(true),
+    ))
+
+    private val p256Params by lazy {
+        val params = java.security.AlgorithmParameters.getInstance("EC")
+        params.init(ECGenParameterSpec(CURVE))
+        params.getParameterSpec(java.security.spec.ECParameterSpec::class.java)
+    }
+
+    private fun publicKeyFromJwk(jwk: JsonObject): PublicKey {
+        val x = BigInteger(1, b64urlDecode((jwk["x"] as JsonPrimitive).content))
+        val y = BigInteger(1, b64urlDecode((jwk["y"] as JsonPrimitive).content))
+        val point = ECPoint(x, y)
+        val spec = ECPublicKeySpec(point, p256Params)
+        return KeyFactory.getInstance("EC").generatePublic(spec)
+    }
+
+    private fun deriveWrapKey(myPriv: PrivateKey, peerPub: PublicKey): SecretKeySpec {
+        val ka = KeyAgreement.getInstance("ECDH")
+        ka.init(myPriv)
+        ka.doPhase(peerPub, true)
+        val secret = ka.generateSecret() // 32 bytes for P-256, same bytes WebCrypto's ECDH deriveKey uses directly
+        return SecretKeySpec(secret, "AES")
+    }
+
+    /** userIDs that do NOT have any registered device key yet — the gate for offering encryption. */
+    suspend fun usersMissingKeys(userIds: List<Long>): List<Long> {
+        val keys = runCatching { SessionManager.api.deviceKeys(userIds) }.getOrDefault(emptyList())
+        val ready = keys.map { it.user_id }.toSet()
+        return userIds.filterNot { it in ready }
+    }
+
+    data class EncryptedPayload(val ciphertext: String, val iv: String, val encKeys: String)
+
+    suspend fun encryptForRecipients(context: Context, plaintext: String, recipientUserIds: List<Long>): EncryptedPayload {
+        val bundle = getOrCreateKeyPair(context)
+        val allKeys = SessionManager.api.deviceKeys(recipientUserIds)
+        if (allKeys.isEmpty()) throw IllegalStateException("No recipient has encryption set up on any device yet")
+
+        val contentKeyBytes = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        val contentKey = SecretKeySpec(contentKeyBytes, "AES")
+        val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, contentKey, GCMParameterSpec(128, iv))
+        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+
+        val entries = mutableListOf<WrappedKeyEntry>()
+        for (dk: DeviceKey in allKeys) {
+            try {
+                val peerJwk = json.parseToJsonElement(dk.public_key_jwk) as JsonObject
+                val peerPub = publicKeyFromJwk(peerJwk)
+                val wrapKey = deriveWrapKey(bundle.private, peerPub)
+                val wrapIv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+                val wrapCipher = Cipher.getInstance("AES/GCM/NoPadding")
+                wrapCipher.init(Cipher.ENCRYPT_MODE, wrapKey, GCMParameterSpec(128, wrapIv))
+                val wrapped = wrapCipher.doFinal(contentKeyBytes)
+                entries += WrappedKeyEntry(
+                    user_id = dk.user_id, device_id = dk.device_id,
+                    wrapped_key = b64std(wrapped), wrap_iv = b64std(wrapIv),
+                    sender_pub_jwk = bundle.publicJwk,
+                )
+            } catch (_: Exception) {
+                // a malformed/incompatible key on one device shouldn't sink the whole send
+            }
+        }
+        return EncryptedPayload(
+            ciphertext = b64std(ciphertext),
+            iv = b64std(iv),
+            encKeys = json.encodeToString(ListSerializer(WrappedKeyEntry.serializer()), entries),
+        )
+    }
+
+    private fun b64std(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    private fun b64stdDecode(s: String): ByteArray = Base64.decode(s, Base64.NO_WRAP)
+
+    private val decryptCache = mutableMapOf<Long, String?>()
+
+    /** Drop decrypted plaintext held in memory when the active account changes. */
+    fun clearOnLogout() {
+        decryptCache.clear()
+        cached = null
+        cachedFor = null
+    }
+
+    suspend fun decryptMessageContent(context: Context, id: Long, isEncrypted: Boolean, content: String, encIv: String?, encKeys: String?): String? {
+        if (!isEncrypted) return content
+        decryptCache[id]?.let { return it }
+        if (!decryptCache.containsKey(id)) {
+            val result = runCatching { decryptNow(context, content, encIv, encKeys) }.getOrNull()
+            decryptCache[id] = result
+            return result
+        }
+        return null
+    }
+
+    private suspend fun decryptNow(context: Context, content: String, encIv: String?, encKeysJson: String?): String? {
+        if (encIv == null || encKeysJson == null) return null
+        val entries = runCatching { json.decodeFromString<List<WrappedKeyEntry>>(encKeysJson) }.getOrNull() ?: return null
+        val myDeviceId = Prefs.deviceId(context)
+        val mine = entries.firstOrNull { it.device_id == myDeviceId } ?: return null
+        val bundle = getOrCreateKeyPair(context)
+        val senderPub = publicKeyFromJwk(mine.sender_pub_jwk)
+        val wrapKey = deriveWrapKey(bundle.private, senderPub)
+        val unwrapCipher = Cipher.getInstance("AES/GCM/NoPadding")
+        unwrapCipher.init(Cipher.DECRYPT_MODE, wrapKey, GCMParameterSpec(128, b64stdDecode(mine.wrap_iv)))
+        val rawContentKey = unwrapCipher.doFinal(b64stdDecode(mine.wrapped_key))
+        val contentKey = SecretKeySpec(rawContentKey, "AES")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, contentKey, GCMParameterSpec(128, b64stdDecode(encIv)))
+        val plain = cipher.doFinal(b64stdDecode(content))
+        return String(plain, Charsets.UTF_8)
+    }
+
+    private val json = Json { ignoreUnknownKeys = true }
+}

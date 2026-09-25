@@ -1,0 +1,11 @@
+node_modules
+web/dist
+server/static/dist
+data
+*.exe
+.env
+.git
+gui-test-screenshots
+dist
+android
+scratchpad

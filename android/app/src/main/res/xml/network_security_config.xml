@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Self-hosted LAN server: plain HTTP is allowed (DISABLE_TLS mode / localhost dev),
+     and a CA the user installed by hand (see README "Trusting a self-signed
+     certificate") is trusted the same way a browser trusts it. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

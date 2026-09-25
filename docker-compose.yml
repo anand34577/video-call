@@ -1,0 +1,50 @@
+name: videocall
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: videocall-app
+    # host networking is required on Linux so WebRTC media (SFU + coturn)
+    # can bind real UDP ports reachable from the LAN/VPN.
+    network_mode: host
+    environment:
+      LISTEN_ADDR: ":8443"
+      DATA_DIR: /data
+      TLS_CERT: ${TLS_CERT:-}
+      TLS_KEY: ${TLS_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (openssl rand -hex 32)}
+      EXTERNAL_IP: ${EXTERNAL_IP:?Set EXTERNAL_IP in .env (LAN/VPN IP of this machine)}
+      BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      MAX_CALL_PARTICIPANTS: ${MAX_CALL_PARTICIPANTS:-8}
+      TURN_HOST: ${TURN_HOST:-}
+      TURN_SECRET: ${TURN_SECRET:?Set TURN_SECRET in .env (long random string) - it is a shared relay credential, never leave it default}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      PROXY_TLS: ${PROXY_TLS:-false}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: videocall-turn
+    network_mode: host
+    # All settings via CLI flags so TURN_SECRET can flow in from .env.
+    command: >
+      -n
+      --realm=videocall.lan
+      --fingerprint
+      --lt-cred-mech
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET:?Set TURN_SECRET in .env}
+      --listening-port=3478
+      --min-port=49160
+      --max-port=49200
+      --external-ip=${EXTERNAL_IP:?Set EXTERNAL_IP in .env}
+      --no-cli
+      --no-tls
+      --no-dtls
+      --log-file=stdout
+    restart: unless-stopped

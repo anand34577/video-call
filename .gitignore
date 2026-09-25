@@ -1,0 +1,58 @@
+# ---- secrets / env ----
+.env
+.env.*
+!.env.example
+
+# ---- runtime data & keys (sqlite, certs, uploads) ----
+/data/
+/server/data/
+/dist/data/
+*.pem
+*.crt
+*.key
+
+# ---- build artifacts ----
+/dist/
+*.exe
+videocall-server
+videocall-server.exe
+web/dist/
+server/static/dist/*
+!server/static/dist/.gitkeep
+*.tsbuildinfo
+
+# ---- node ----
+node_modules/
+coverage/
+npm-debug.log*
+yarn-error.log*
+
+# ---- go ----
+*.test
+*.out
+
+# ---- android / gradle ----
+android/.gradle/
+android/**/build/
+android/local.properties
+android/captures/
+*.apk
+*.aab
+
+# ---- editors / local tools ----
+.idea/
+.vscode/
+scratchpad/
+gui-test-screenshots/
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---- internal notes, audits and local tooling (not part of the public repo) ----
+AUDIT_REPORT.md
+PRODUCT.md
+SKILL.md
+*.cmd
+*.log
