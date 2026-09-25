@@ -146,7 +146,7 @@ private fun SearchResultRow(m: Message) {
     ListItem(
         leadingContent = { Avatar(m.sender?.display_name ?: "?", m.sender?.avatar_file_id) },
         headlineContent = { Text(m.sender?.display_name ?: "Unknown") },
-        supportingContent = { Text(if (m.is_encrypted) "🔒 Encrypted message" else m.content, maxLines = 2) },
+        supportingContent = { Text(if (m.is_encrypted) "Encrypted message" else m.content, maxLines = 2) },
         trailingContent = { Text(m.sent_at.take(10)) },
     )
     Divider()

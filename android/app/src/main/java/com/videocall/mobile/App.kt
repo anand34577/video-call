@@ -1,12 +1,11 @@
 package com.videocall.mobile
 
+import android.app.Activity
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.os.Build
-import com.videocall.mobile.call.Ringer
+import android.os.Bundle
 import com.videocall.mobile.session.SessionManager
 
 class App : Application(), coil.ImageLoaderFactory {
@@ -15,6 +14,18 @@ class App : Application(), coil.ImageLoaderFactory {
         com.videocall.mobile.ui.theme.ThemeState.load(this)
         SessionManager.init(this) // binds + registers CallRepository if a server URL is already saved
         createNotificationChannels()
+        registerActivityLifecycleCallbacks(ForegroundTracker)
+    }
+
+    /** Counts visible activities, so calls know whether the app is on screen. */
+    private object ForegroundTracker : ActivityLifecycleCallbacks {
+        override fun onActivityStarted(activity: Activity) { startedActivities++ }
+        override fun onActivityStopped(activity: Activity) { startedActivities = (startedActivities - 1).coerceAtLeast(0) }
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+        override fun onActivityResumed(activity: Activity) {}
+        override fun onActivityPaused(activity: Activity) {}
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+        override fun onActivityDestroyed(activity: Activity) {}
     }
 
     /**
@@ -31,21 +42,15 @@ class App : Application(), coil.ImageLoaderFactory {
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
-        val ringAttrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
+        // The first release's "calls" channel played the ringtone itself while
+        // Ringer played it too, so every call rang twice. A channel's sound
+        // can't be changed after creation, so replace it with a silent one.
+        nm.deleteNotificationChannel("calls")
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_CALLS, "Calls", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Incoming and ongoing calls"
-                // The channel sound only fires once on post; the actual ring loop
-                // for as long as the call keeps ringing is handled separately by
-                // Ringer (this app has no push service to wake a killed process,
-                // so the loud, unmistakable ring while the process IS alive matters
-                // more here than in an app that can rely on FCM).
-                setSound(RingtoneManager.getActualDefaultRingtoneUri(this@App, RingtoneManager.TYPE_RINGTONE), ringAttrs)
-                enableVibration(true)
-                vibrationPattern = Ringer.VIBRATE_PATTERN
+            NotificationChannel(CHANNEL_RINGING, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Rings for incoming calls"
+                setSound(null, null)
+                enableVibration(false) // Ringer vibrates while the call rings
                 setBypassDnd(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
@@ -70,9 +75,15 @@ class App : Application(), coil.ImageLoaderFactory {
     }
 
     companion object {
-        const val CHANNEL_CALLS = "calls"
+        const val CHANNEL_RINGING = "calls_ringing"
         const val CHANNEL_CALL_ONGOING = "call_ongoing"
         const val CHANNEL_MESSAGES = "messages"
         const val CHANNEL_CONNECTION = "connection"
+
+        @Volatile
+        private var startedActivities = 0
+
+        /** True while any of the app's screens is visible. */
+        val isInForeground: Boolean get() = startedActivities > 0
     }
 }

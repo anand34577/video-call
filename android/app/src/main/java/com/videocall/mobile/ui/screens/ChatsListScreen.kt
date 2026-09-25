@@ -44,13 +44,22 @@ private data class ConvoItem(
     val isGroup: Boolean,
 )
 
+/** The small icon in front of a preview line: photo, attachment or lock. */
+fun previewIcon(m: Message?): androidx.compose.ui.graphics.vector.ImageVector? = when {
+    m == null || m.deleted_at != null -> null
+    m.file != null && (m.decryptedContent ?: m.content).isBlank() ->
+        if (m.file.mime.startsWith("image/")) Icons.Default.Image else Icons.Default.AttachFile
+    m.is_encrypted && m.decryptedContent == null -> Icons.Default.Lock
+    else -> null
+}
+
 /** One messages preview line, the way the chat list shows it. */
 fun previewText(m: Message?, myId: Long?, isGroup: Boolean): String {
     if (m == null) return ""
     val body = when {
         m.deleted_at != null -> "Message deleted"
-        m.file != null && (m.decryptedContent ?: m.content).isBlank() -> if (m.file.mime.startsWith("image/")) "📷 Photo" else "📎 ${m.file.name}"
-        m.is_encrypted -> m.decryptedContent ?: "🔒 Encrypted message"
+        m.file != null && (m.decryptedContent ?: m.content).isBlank() -> if (m.file.mime.startsWith("image/")) "Photo" else m.file.name
+        m.is_encrypted -> m.decryptedContent ?: "Encrypted message"
         else -> m.content
     }.replace('\n', ' ')
     return when {
@@ -239,6 +248,9 @@ private fun ConversationRow(item: ConvoItem, myId: Long?, typingName: String?, o
                         Modifier.size(16.dp).padding(end = 3.dp),
                         tint = if (last.read_at != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                if (typingName == null) previewIcon(last)?.let { icon ->
+                    Icon(icon, null, Modifier.size(16.dp).padding(end = 3.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     when {

@@ -85,9 +85,12 @@ object CallRepository {
     // Re-attaches handlers to the current SessionManager.ws; called on every
     // SessionManager.bind() (including server switches), since each bind()
     // creates a brand-new WsClient that needs its own listeners.
+    private var ringWatcher: kotlinx.coroutines.Job? = null
+
     fun registerOnce(context: Context) {
         appContext = context.applicationContext
         val ws = SessionManager.ws
+        watchRinging()
 
         // The server keeps a 1:1 call alive briefly after the socket drops;
         // claim it back on reconnect or it ends the call.
@@ -113,7 +116,7 @@ object CallRepository {
             val from = parseUserBrief(data.obj()["from"]?.obj() ?: JsonObject(emptyMap()))
             val inc = Incoming(data.str("call_id") ?: return@on, from, data.bool("video") ?: false)
             _state.value = _state.value.copy(status = CallStatus.INCOMING, incoming = inc)
-            launchCallUi()
+            showRinging()
             // Tell the caller this device is actually ringing now, not just that
             // the invite was delivered — mirrors web/src/store/calls.ts. Without
             // this, the caller only ever finds out via a final call:ended
@@ -170,7 +173,7 @@ object CallRepository {
             val from = parseUserBrief(d.obj()["from"]?.obj() ?: JsonObject(emptyMap()))
             val inv = RoomInvite(d.str("room_id") ?: return@on, d.str("group_name") ?: "", from)
             _state.value = _state.value.copy(roomInvite = inv)
-            launchCallUi()
+            showRinging()
         }
         ws.on("room:joined") { d ->
             val s = _state.value
@@ -282,6 +285,40 @@ object CallRepository {
         avatar_file_id = obj.long("avatar_file_id"),
     )
 
+    /**
+     * Rings for an incoming call or group-call invite. With the app open, the
+     * call screen opens by itself. In the background, a full-screen
+     * notification rings instead; no foreground service is started until the
+     * call is answered (Android forbids that from the background, and it used
+     * to crash the app).
+     */
+    private fun showRinging() {
+        if (com.videocall.mobile.App.isInForeground) {
+            val intent = android.content.Intent(appContext, CallActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            runCatching { appContext.startActivity(intent) }
+        } else {
+            IncomingCallNotifier.show(appContext, _state.value)
+        }
+    }
+
+    // Plays one ringtone while a call rings and clears the ringing
+    // notification the moment it's answered, declined or cancelled.
+    private fun watchRinging() {
+        if (ringWatcher != null) return
+        ringWatcher = scope.launch {
+            _state.collect { s ->
+                if (s.incoming != null || s.roomInvite != null) {
+                    Ringer.start(appContext)
+                } else {
+                    Ringer.stop(appContext)
+                    IncomingCallNotifier.cancel(appContext)
+                }
+            }
+        }
+    }
+
     private fun launchCallUi() {
         CallService.ensureRunning(appContext)
         val intent = android.content.Intent(appContext, CallActivity::class.java).apply {
@@ -320,6 +357,7 @@ object CallRepository {
         val inc = _state.value.incoming ?: return
         val enableVideo = withVideo ?: inc.video
         val callId = inc.callId
+        CallService.ensureRunning(appContext)
         _state.value = _state.value.copy(status = CallStatus.CONNECTING, mode = CallMode.P2P, callId = callId, peer = inc.from, incoming = null, camOn = enableVideo)
         scope.launch {
             try {
@@ -360,6 +398,7 @@ object CallRepository {
 
     fun acceptRoomInvite(context: Context, video: Boolean = true) {
         val inv = _state.value.roomInvite ?: return
+        CallService.ensureRunning(appContext)
         val groupId = inv.roomId.removePrefix("group:").toLongOrNull()
         val group = com.videocall.mobile.chat.ChatRepository.groups.value.firstOrNull { it.id == groupId }
             ?: groupId?.let { Group(id = it, name = inv.groupName) }

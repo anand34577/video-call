@@ -330,7 +330,7 @@ object ChatRepository {
                 val plain = runCatching {
                     Crypto.decryptMessageContent(appContext, m.id, m.is_encrypted, m.content, m.enc_iv, m.enc_keys)
                 }.getOrNull()
-                mutateEverywhere(m.id) { it.copy(decryptedContent = plain ?: "🔒 Cannot decrypt (not sent to this device)") }
+                mutateEverywhere(m.id) { it.copy(decryptedContent = plain ?: "Can't decrypt this message on this device") }
             }
         }
     }

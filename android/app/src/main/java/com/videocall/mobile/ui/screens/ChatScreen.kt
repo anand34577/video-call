@@ -451,7 +451,12 @@ private suspend fun exportChat(context: android.content.Context, convo: Convo) {
 @Composable
 private fun EmptyChat(title: String, encrypted: Boolean) {
     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("👋", style = MaterialTheme.typography.displaySmall)
+        Box(
+            Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.WavingHand, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
         Spacer(Modifier.height(12.dp))
         Text("Say hello to $title", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -497,7 +502,7 @@ private fun nameColor(name: String): Color {
 
 private fun displayText(m: Message): String = when {
     m.deleted_at != null -> "This message was deleted"
-    m.is_encrypted -> m.decryptedContent ?: "🔒 Decrypting…"
+    m.is_encrypted -> m.decryptedContent ?: "Decrypting…"
     else -> m.content
 }
 
@@ -591,8 +596,8 @@ private fun MessageBubble(
                             Text(
                                 when {
                                     r.deleted -> "Deleted message"
-                                    r.is_encrypted -> "🔒 Encrypted message"
-                                    r.content.isBlank() && r.has_file -> "📎 Attachment"
+                                    r.is_encrypted -> "Encrypted message"
+                                    r.content.isBlank() && r.has_file -> "Attachment"
                                     else -> r.content
                                 },
                                 style = MaterialTheme.typography.bodySmall, color = meta, maxLines = 2, overflow = TextOverflow.Ellipsis,

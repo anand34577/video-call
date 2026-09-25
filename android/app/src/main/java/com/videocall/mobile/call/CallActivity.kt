@@ -96,6 +96,30 @@ class CallActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        handleAutoActions(intent)
+
+        setContent {
+            VisionCallTheme(forceDark = true) {
+                CallScreen(
+                    onFinish = { finish() },
+                    onRequestScreenShare = {
+                        val mgr = getSystemService(MediaProjectionManager::class.java)
+                        screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+                    },
+                )
+            }
+        }
+    }
+
+    // The call screen is single-instance: tapping Answer on the ringing
+    // notification while it's already open arrives here, not in onCreate.
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAutoActions(intent)
+    }
+
+    private fun handleAutoActions(intent: android.content.Intent?) {
         pendingAutoAnswer = intent?.getBooleanExtra(EXTRA_AUTO_ANSWER, false) == true
         pendingAutoJoinRoom = intent?.getBooleanExtra(EXTRA_AUTO_JOIN_ROOM, false) == true
 
@@ -108,18 +132,6 @@ class CallActivity : ComponentActivity() {
             if (pendingAutoJoinRoom) CallRepository.acceptRoomInvite(this)
             pendingAutoAnswer = false
             pendingAutoJoinRoom = false
-        }
-
-        setContent {
-            VisionCallTheme(forceDark = true) {
-                CallScreen(
-                    onFinish = { finish() },
-                    onRequestScreenShare = {
-                        val mgr = getSystemService(MediaProjectionManager::class.java)
-                        screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
-                    },
-                )
-            }
         }
     }
 
@@ -675,8 +687,8 @@ private fun CallChatBubble(msg: Message, isMine: Boolean) {
             Text(
                 when {
                     msg.deleted_at != null -> "Message deleted"
-                    msg.is_encrypted -> msg.decryptedContent ?: "🔒 Encrypted message"
-                    msg.file != null && msg.content.isBlank() -> "📎 ${msg.file.name}"
+                    msg.is_encrypted -> msg.decryptedContent ?: "Encrypted message"
+                    msg.file != null && msg.content.isBlank() -> "Attachment: ${msg.file.name}"
                     else -> msg.content
                 },
                 color = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,

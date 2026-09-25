@@ -48,7 +48,6 @@ class CallService : Service() {
                     val nm = getSystemService(android.app.NotificationManager::class.java)
                     nm.notify(NOTIF_ID, buildNotification(state))
                 }
-                if (state.incoming != null || state.roomInvite != null) Ringer.start(this) else Ringer.stop(this)
             }
         }.launchIn(scope)
     }
@@ -56,7 +55,6 @@ class CallService : Service() {
     override fun onDestroy() {
         if (instance === this) instance = null
         job?.cancel()
-        Ringer.stop(this)
         super.onDestroy()
     }
 
@@ -76,24 +74,29 @@ class CallService : Service() {
 
     private fun startForegroundWithType(type: Int) {
         val notification = buildNotification(CallRepository.state.value)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, notification, type)
-        } else {
-            startForeground(NOTIF_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID, notification, type)
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
+        } catch (e: Exception) {
+            // Android refused the service (for example it was started while
+            // the app was in the background). The call keeps working while
+            // the app is open; it just loses the ongoing-call notification.
+            android.util.Log.w("CallService", "could not start foreground service", e)
+            stopSelf()
         }
     }
 
     private fun buildNotification(state: CallUiState): Notification {
-        val isRinging = state.incoming != null || state.roomInvite != null
         val title = when {
-            state.incoming != null -> "Incoming call"
-            state.roomInvite != null -> "Group call invite"
             state.status == CallStatus.OUTGOING -> "Calling…"
             state.status == CallStatus.CONNECTING -> "Connecting…"
             state.status == CallStatus.ACTIVE -> "Call in progress"
             else -> "Vision Call"
         }
-        val who = state.incoming?.from?.display_name ?: state.roomInvite?.groupName ?: state.peer?.display_name ?: state.group?.name ?: "call"
+        val who = state.peer?.display_name ?: state.group?.name ?: state.privateRoomId?.let { "Room $it" } ?: "call"
         val fullScreenIntent = Intent(this, CallActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -102,30 +105,24 @@ class CallService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val caller = androidx.core.app.Person.Builder().setName(who).setImportant(true).build()
-        // Ringing uses the high-importance channel (heads-up + ringtone); an
-        // ongoing call uses a silent one, so status changes (connecting ->
-        // active) never pop a heads-up over the call screen.
-        val builder = NotificationCompat.Builder(this, if (isRinging) App.CHANNEL_CALLS else App.CHANNEL_CALL_ONGOING)
+        // A silent, low-importance channel, so status changes (connecting ->
+        // active) never pop a banner over the call screen.
+        val builder = NotificationCompat.Builder(this, App.CHANNEL_CALL_ONGOING)
             .setSmallIcon(com.videocall.mobile.R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(who)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setPriority(if (isRinging) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setContentIntent(fullScreenPending)
             .addPerson(caller)
 
-        if (isRinging) {
-            builder.setFullScreenIntent(fullScreenPending, true)
-            builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, actionPending(ACTION_DECLINE), actionPending(ACTION_ANSWER)))
-        } else {
-            if (state.status == CallStatus.ACTIVE && state.startedAt != null) {
-                builder.setUsesChronometer(true)
-                builder.setWhen(System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - state.startedAt))
-            }
-            builder.setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, actionPending(ACTION_HANGUP)))
+        if (state.status == CallStatus.ACTIVE && state.startedAt != null) {
+            builder.setUsesChronometer(true)
+            builder.setWhen(System.currentTimeMillis() - (android.os.SystemClock.elapsedRealtime() - state.startedAt))
         }
+        builder.setStyle(NotificationCompat.CallStyle.forOngoingCall(caller, actionPending(ACTION_HANGUP)))
         return builder.build()
     }
 
