@@ -38,10 +38,7 @@ WORKDIR /data
 USER app
 # 8443 HTTPS app, 8080 plain HTTP, 7882/udp group-call media.
 EXPOSE 8443/tcp 8080/tcp 7882/udp
-# Port 8080 serves /api/healthz in every mode except HTTPS_REDIRECT=true, so
-# fall back to the HTTPS port for that case.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/api/healthz \
-   || wget -q -O /dev/null --no-check-certificate https://127.0.0.1:8443/api/healthz \
-   || exit 1
+# The binary checks its own port over HTTPS or HTTP, whichever the settings
+# say, so the check stays right whatever ports or TLS mode are configured.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3   CMD ["visioncall-server", "-healthcheck"]
 ENTRYPOINT ["visioncall-server"]

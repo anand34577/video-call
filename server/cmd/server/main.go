@@ -41,8 +41,9 @@ func main() {
 	setupService()
 
 	var cliAddr, cliPort, backupPath, envFile string
-	var showVersion bool
+	var showVersion, healthOnly bool
 	flag.BoolVar(&showVersion, "version", false, "Print the version and exit")
+	flag.BoolVar(&healthOnly, "healthcheck", false, "Check that the running server answers, then exit 0 (healthy) or 1")
 	flag.StringVar(&cliAddr, "addr", "", "Listen address (e.g. :8080 or :9000)")
 	flag.StringVar(&cliPort, "port", "", "Listen port (e.g. 8080 or 9000)")
 	flag.StringVar(&backupPath, "backup", "", "Write a consistent DB backup to this path and exit (built-in SQLite only; use pg_dump or mysqldump for Postgres/MySQL)")
@@ -70,6 +71,10 @@ func main() {
 		} else {
 			cfg.ListenAddr = cliPort
 		}
+	}
+
+	if healthOnly {
+		os.Exit(healthcheck(cfg.ListenAddr))
 	}
 
 	lg, logLevel := logger.New(cfg.LogLevel)
