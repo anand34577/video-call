@@ -54,7 +54,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if user.Disabled {
 		a.auditAnon(r, req.Username, "login_failed", "account disabled")
-		writeErr(w, http.StatusForbidden, "account disabled")
+		writeErr(w, http.StatusForbidden, "This account is suspended. Please contact your administrator.")
 		return
 	}
 	a.limiter.Success(key)

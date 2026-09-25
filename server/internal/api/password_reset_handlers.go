@@ -134,7 +134,7 @@ func (a *API) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request)
 	// currently-connected socket is dropped immediately either way.
 	sessErr := a.db.DeleteSessionsForUser(userID)
 	tokenErr := a.db.DeletePasswordResetTokensForUser(userID)
-	a.hub.KickUser(userID)
+	a.hub.KickUser(userID, "password_changed")
 	if sessErr != nil {
 		a.log.Error("password reset: revoke sessions failed", "user_id", userID, "err", sessErr)
 		writeErr(w, http.StatusInternalServerError, "password was changed, but revoking old sessions failed — please contact your administrator")

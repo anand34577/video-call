@@ -111,8 +111,10 @@ export const api = {
       email?: string;
     },
   ) => req<User>(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  deleteUser: (id: number) =>
-    req<{ ok: boolean }>(`/api/users/${id}`, { method: "DELETE" }),
+  /** permanent=false keeps their messages as "Deleted user"; true erases everything. */
+  deleteUser: (id: number, permanent = false) =>
+    req<{ ok: boolean }>(`/api/users/${id}${permanent ? "?permanent=true" : ""}`, { method: "DELETE" }),
+  signOutUser: (id: number) => req<{ ok: boolean }>(`/api/users/${id}/sign-out`, { method: "POST" }),
   updateSelf: (body: {
     display_name?: string;
     avatar_file_id?: number | null;

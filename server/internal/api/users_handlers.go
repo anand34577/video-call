@@ -74,11 +74,17 @@ func (a *API) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	// The directory is visible to everyone; email addresses are only for
 	// admins (who manage them) and the account owner.
 	if me := auth.CurrentUser(r); me.Role != "admin" {
+		visible := users[:0]
 		for _, u := range users {
+			if u.Deleted {
+				continue
+			}
 			if u.ID != me.ID {
 				u.Email = nil
 			}
+			visible = append(visible, u)
 		}
+		users = visible
 	}
 	a.decorateUsers(users)
 	writeJSON(w, http.StatusOK, users)
@@ -153,6 +159,7 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		user = u
 	}
 	a.audit(r, "user_create", "user", &user.ID, "username="+user.Username+" role="+user.Role)
+	a.hub.DirectoryChanged()
 	user.PasswordHash = ""
 	user.Status = "offline"
 	writeJSON(w, http.StatusCreated, user)
@@ -179,6 +186,10 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	target, err := a.db.GetUserByID(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if target.Deleted {
+		writeErr(w, http.StatusBadRequest, "this account was deleted and can't be changed")
 		return
 	}
 	var req updateUserRequest
@@ -213,12 +224,12 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "could not verify administrator count")
 			return
 		} else if count <= 1 {
-			writeErr(w, http.StatusBadRequest, "cannot disable the last active admin")
+			writeErr(w, http.StatusBadRequest, "cannot suspend the last active admin")
 			return
 		}
 	}
 	if req.Disabled != nil && *req.Disabled && target.ID == me.ID {
-		writeErr(w, http.StatusBadRequest, "you cannot disable your own account")
+		writeErr(w, http.StatusBadRequest, "you cannot suspend your own account")
 		return
 	}
 	if req.Password != nil && len(*req.Password) < 8 {
@@ -254,21 +265,28 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "could not update user")
 		return
 	}
-	if req.Password != nil {
-		// new password invalidates existing sessions
+
+	// Suspending or changing the password takes effect straight away: every
+	// session is revoked and a connected app is signed out on the spot.
+	suspended := req.Disabled != nil && *req.Disabled
+	if suspended || req.Password != nil {
 		if err := a.db.DeleteSessionsForUser(id); err != nil {
 			writeErr(w, http.StatusInternalServerError, "could not revoke existing sessions")
 			return
 		}
-		_ = a.db.DeletePasswordResetTokensForUser(id)
-		a.hub.KickUser(id)
-	} else if req.Disabled != nil && *req.Disabled {
-		if err := a.db.DeleteSessionsForUser(id); err != nil {
-			writeErr(w, http.StatusInternalServerError, "could not revoke existing sessions")
-			return
+		reason := "password_changed"
+		if suspended {
+			reason = "suspended"
 		}
-		a.hub.KickUser(id)
+		if req.Password != nil {
+			_ = a.db.DeletePasswordResetTokensForUser(id)
+		}
+		a.hub.KickUser(id, reason)
+	} else if req.Role != nil || req.DisplayName != nil {
+		a.hub.AccountUpdated(id)
 	}
+	a.hub.DirectoryChanged()
+
 	user, err := a.db.GetUserByID(id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not retrieve updated user")
@@ -297,6 +315,35 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+// handleSignOutUser ends every session of an account without suspending it,
+// for example after a lost phone.
+func (a *API) handleSignOutUser(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	target, err := a.db.GetUserByID(id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if err := a.db.DeleteSessionsForUser(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not revoke sessions")
+		return
+	}
+	a.hub.KickUser(id, "signed_out")
+	a.audit(r, "user_sign_out", "user", &id, "username="+target.Username)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleDeleteUser removes an account in one of two ways:
+//
+//   - default: the account is anonymized to "Deleted user". It can never
+//     sign in again, but its messages and calls stay in other people's
+//     history.
+//   - ?permanent=true: the account and everything tied to it (messages in
+//     both directions, calls, uploads, rooms) are erased for good.
 func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	a.adminMu.Lock()
 	defer a.adminMu.Unlock()
@@ -306,6 +353,7 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
+	permanent := r.URL.Query().Get("permanent") == "true"
 	me := auth.CurrentUser(r)
 	if id == me.ID {
 		writeErr(w, http.StatusBadRequest, "you cannot delete your own account")
@@ -316,13 +364,17 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "user not found")
 		return
 	}
-	if target.Role == "admin" {
+	if target.Deleted && !permanent {
+		writeErr(w, http.StatusBadRequest, "this account is already deleted")
+		return
+	}
+	if target.Role == "admin" && !target.Disabled && !target.Deleted {
 		admins, err := a.db.CountEnabledAdmins()
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "could not verify administrator count")
 			return
 		}
-		if !target.Disabled && admins <= 1 {
+		if admins <= 1 {
 			writeErr(w, http.StatusBadRequest, "cannot delete the last active admin")
 			return
 		}
@@ -336,15 +388,20 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "could not inspect user files")
 		return
 	}
-	a.hub.KickUser(id)
-	// Anonymize rather than hard-delete: a real DELETE cascades onto messages
-	// and calls (FKs are ON DELETE CASCADE) and would erase the *other*
-	// party's chat/call history along with the removed account.
-	if err := a.db.AnonymizeUser(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not delete user")
-		return
+	a.hub.KickUser(id, "deleted")
+	if permanent {
+		if err := a.db.PurgeUser(id); err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not delete user")
+			return
+		}
+		a.audit(r, "user_purge", "user", &id, "username="+target.Username)
+	} else {
+		if err := a.db.AnonymizeUser(id); err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not delete user")
+			return
+		}
+		a.audit(r, "user_delete", "user", &id, "username="+target.Username)
 	}
-	a.audit(r, "user_delete", "user", &id, "username="+target.Username)
 	for _, path := range paths {
 		if !withinDirectory(a.cfg.DataDir, path) {
 			if a.log != nil {
@@ -356,6 +413,7 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 			a.log.Warn("remove deleted user's file", "user_id", id, "path", path, "err", err)
 		}
 	}
+	a.hub.DirectoryChanged()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -414,7 +472,7 @@ func (a *API) handleUpdateSelf(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = a.db.DeletePasswordResetTokensForUser(me.ID)
-		a.hub.KickUser(me.ID)
+		a.hub.KickUser(me.ID, "password_changed")
 		a.audit(r, "password_change", "user", &me.ID, "self-service")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "relogin"})
 		return

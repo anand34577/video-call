@@ -28,7 +28,9 @@ type PresenceProvider interface {
 	GetPresence() map[int64]string
 	OnlineCount() int
 	ActiveCalls() int
-	KickUser(userID int64)
+	KickUser(userID int64, reason string)
+	DirectoryChanged()
+	AccountUpdated(userID int64)
 	EvictFromGroupRoom(groupID, targetID int64) bool
 }
 
@@ -196,6 +198,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/users", a.handleCreateUser)
 			r.Patch("/users/{id}", a.handleUpdateUser)
 			r.Delete("/users/{id}", a.handleDeleteUser)
+			r.Post("/users/{id}/sign-out", a.handleSignOutUser)
 			r.Get("/admin/stats", a.handleAdminStats)
 			r.Get("/admin/audit", a.handleListAudit)
 			r.Delete("/users/{id}/oidc-link", a.handleAdminOIDCUnlink)

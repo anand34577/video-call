@@ -1,20 +1,34 @@
 package com.videocall.mobile.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.videocall.mobile.net.AdminStats
@@ -64,18 +78,42 @@ fun AdminScreen(onBack: () -> Unit) {
     }
 }
 
+private enum class UserFilter(val label: String) { ALL("All"), ADMINS("Admins"), SUSPENDED("Suspended"), DELETED("Deleted") }
+
+private fun UserFilter.matches(u: User): Boolean = when (this) {
+    UserFilter.ALL -> !u.deleted
+    UserFilter.ADMINS -> !u.deleted && u.role == "admin"
+    UserFilter.SUSPENDED -> !u.deleted && u.disabled
+    UserFilter.DELETED -> u.deleted
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AdminUsersTab(showError: (String) -> Unit) {
+private fun AdminUsersTab(showMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
+    val me by SessionManager.me.collectAsState()
     var stats by remember { mutableStateOf<AdminStats?>(null) }
     var users by remember { mutableStateOf<List<User>>(emptyList()) }
+    var filter by remember { mutableStateOf(UserFilter.ALL) }
     var showCreate by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
+    var editTarget by remember { mutableStateOf<User?>(null) }
+    var suspendTarget by remember { mutableStateOf<User?>(null) }
     var deleteTarget by remember { mutableStateOf<User?>(null) }
 
     suspend fun refresh() {
         stats = runCatching { SessionManager.api.adminStats() }.getOrNull()
         users = runCatching { SessionManager.api.users() }.getOrDefault(emptyList())
+    }
+
+    // Runs an admin action, then reports the outcome and reloads the list.
+    fun act(success: String, block: suspend () -> Unit) {
+        scope.launch {
+            runCatching { block() }
+                .onSuccess { showMessage(success) }
+                .onFailure { showMessage(it.message ?: "Something went wrong") }
+            refresh()
+        }
     }
 
     LaunchedEffect(Unit) { refresh(); loading = false }
@@ -84,44 +122,91 @@ private fun AdminUsersTab(showError: (String) -> Unit) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
+    val visible = users.filter { filter.matches(it) }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 88.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = 88.dp)) {
             item {
                 stats?.let { s ->
                     SectionCard {
                         Column(Modifier.padding(16.dp)) {
-                            Text("Server", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(12.dp))
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                StatTile("Users", "${s.users}")
+                                StatTile("Accounts", "${s.users}")
                                 StatTile("Online", "${s.online}")
                                 StatTile("Active calls", "${s.active_calls}")
                             }
                             Spacer(Modifier.height(12.dp))
-                            Divider()
+                            HorizontalDivider()
                             Spacer(Modifier.height(8.dp))
                             Text("Version ${s.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("DB: ${s.db_driver}  ·  Storage: ${s.storage.total_bytes / 1_000_000} MB", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(12.dp))
                 }
-                Text("Users", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
+                FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    UserFilter.entries.forEach { f ->
+                        val count = users.count { f.matches(it) }
+                        FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text("${f.label} $count") })
+                    }
+                }
             }
-            items(users) { user ->
+            if (visible.isEmpty()) {
+                item { Text("Nobody here.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(visible, key = { it.id }) { user ->
+                val isMe = user.id == me?.id
+                var menu by remember { mutableStateOf(false) }
+                val status = when {
+                    user.deleted -> "deleted"
+                    user.disabled -> "suspended"
+                    else -> user.role
+                }
                 AppListRow(
+                    modifier = Modifier.animateItem(),
                     leading = { Avatar(user.display_name, user.avatar_file_id) },
-                    title = user.display_name + if (user.disabled) " (disabled)" else "",
-                    subtitle = "@${user.username} · ${user.role}",
+                    title = user.display_name + if (isMe) " (you)" else "",
+                    subtitle = "@${user.username} · $status",
+                    subtitleColor = when {
+                        user.deleted -> MaterialTheme.colorScheme.onSurfaceVariant
+                        user.disabled -> MaterialTheme.colorScheme.error
+                        else -> Color.Unspecified
+                    },
+                    onClick = if (user.deleted) null else ({ editTarget = user }),
                     trailing = {
-                        Switch(checked = !user.disabled, onCheckedChange = { enabled ->
-                            scope.launch {
-                                runCatching { SessionManager.api.updateUser(user.id, disabled = !enabled) }
-                                    .onFailure { showError(it.message ?: "Failed to update user") }
-                                refresh()
+                        if (user.deleted) {
+                            IconButton(onClick = { deleteTarget = user }) {
+                                Icon(Icons.Default.DeleteForever, "Erase permanently", tint = MaterialTheme.colorScheme.error)
                             }
-                        })
-                        IconButton(onClick = { deleteTarget = user }) { Icon(Icons.Default.Delete, "Delete") }
+                        } else if (!isMe) {
+                            Box {
+                                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Actions") }
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                        onClick = { menu = false; editTarget = user },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(if (user.disabled) "Reactivate" else "Suspend") },
+                                        leadingIcon = { Icon(if (user.disabled) Icons.Default.HowToReg else Icons.Default.Block, null) },
+                                        onClick = { menu = false; suspendTarget = user },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Sign out everywhere") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Logout, null) },
+                                        onClick = {
+                                            menu = false
+                                            act("${user.display_name} was signed out of every device.") { SessionManager.api.signOutUser(user.id) }
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete…", color = MaterialTheme.colorScheme.error) },
+                                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = { menu = false; deleteTarget = user },
+                                    )
+                                }
+                            }
+                        }
                     },
                 )
             }
@@ -135,29 +220,164 @@ private fun AdminUsersTab(showError: (String) -> Unit) {
         CreateUserDialog(
             onDismiss = { showCreate = false },
             onCreate = { username, displayName, password, role ->
-                scope.launch {
-                    runCatching { SessionManager.api.createUser(username, displayName, password, role) }
-                        .onFailure { showError(it.message ?: "Failed to create user") }
-                    showCreate = false
-                    refresh()
+                showCreate = false
+                act("Created $displayName.") { SessionManager.api.createUser(username, displayName, password, role) }
+            },
+        )
+    }
+    editTarget?.let { user ->
+        EditUserDialog(
+            user = user,
+            isMe = user.id == me?.id,
+            onDismiss = { editTarget = null },
+            onSave = { name, role, email, password ->
+                editTarget = null
+                val msg = if (password != null) "Saved. ${user.display_name} must sign in with the new password." else "Saved changes to $name."
+                act(msg) {
+                    SessionManager.api.updateUser(
+                        user.id,
+                        displayName = name,
+                        role = role.takeIf { it != user.role },
+                        email = email,
+                        password = password,
+                    )
                 }
             },
         )
     }
-    deleteTarget?.let { user ->
+    suspendTarget?.let { user ->
         ConfirmDialog(
-            title = "Delete ${user.display_name}?",
-            message = "This permanently removes the user's account. This can't be undone.",
-            confirmLabel = "Delete",
+            title = if (user.disabled) "Reactivate ${user.display_name}?" else "Suspend ${user.display_name}?",
+            message = if (user.disabled) "They'll be able to sign in again."
+            else "They're signed out right away and can't sign in until you reactivate them. Nothing is deleted.",
+            confirmLabel = if (user.disabled) "Reactivate" else "Suspend",
+            destructive = !user.disabled,
             onConfirm = {
-                scope.launch {
-                    runCatching { SessionManager.api.deleteUser(user.id) }
-                        .onFailure { showError(it.message ?: "Failed to delete user") }
-                    refresh()
-                }
+                val msg = if (user.disabled) "${user.display_name} can sign in again." else "${user.display_name} is suspended."
+                act(msg) { SessionManager.api.updateUser(user.id, disabled = !user.disabled) }
             },
-            onDismiss = { deleteTarget = null },
+            onDismiss = { suspendTarget = null },
         )
+    }
+    deleteTarget?.let { user ->
+        DeleteUserDialog(
+            user = user,
+            onDismiss = { deleteTarget = null },
+            onDelete = { erase ->
+                deleteTarget = null
+                val msg = if (erase) "${user.display_name} and all their data were erased." else "${user.display_name} was removed."
+                act(msg) { SessionManager.api.deleteUser(user.id, permanent = erase) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun EditUserDialog(user: User, isMe: Boolean, onDismiss: () -> Unit, onSave: (String, String, String, String?) -> Unit) {
+    var name by remember { mutableStateOf(user.display_name) }
+    var email by remember { mutableStateOf(user.email ?: "") }
+    var isAdmin by remember { mutableStateOf(user.role == "admin") }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit ${user.display_name}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(email, { email = it }, label = { Text("Email (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    password, { password = it },
+                    label = { Text("New password") },
+                    placeholder = { Text("Leave empty to keep it") },
+                    singleLine = true,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility, if (showPassword) "Hide password" else "Show password")
+                        }
+                    },
+                    supportingText = { if (password.isNotEmpty() && password.length < 8) Text("At least 8 characters") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isAdmin, onCheckedChange = { isAdmin = it }, enabled = !isMe)
+                    Text(if (isMe) "Admin (you can't change your own role)" else "Admin")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank() && (password.isEmpty() || password.length >= 8),
+                onClick = { onSave(name.trim(), if (isAdmin) "admin" else "user", email.trim(), password.ifEmpty { null }) },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun DeleteUserDialog(user: User, onDismiss: () -> Unit, onDelete: (erase: Boolean) -> Unit) {
+    var erase by remember { mutableStateOf(user.deleted) }
+    var confirm by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (user.deleted) "Erase @${user.username}?" else "Delete ${user.display_name}?") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (!user.deleted) {
+                    DeleteOption(
+                        selected = !erase,
+                        title = "Remove account",
+                        text = "They can never sign in again. Their messages stay in other people's chats as \"Deleted user\".",
+                        onClick = { erase = false },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    DeleteOption(
+                        selected = erase,
+                        title = "Erase everything",
+                        text = "Permanently deletes the account with all their messages, chats, calls, files and rooms.",
+                        onClick = { erase = true },
+                    )
+                }
+                if (erase) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("This can't be undone. Type ${user.username} to confirm.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(confirm, { confirm = it }, singleLine = true, placeholder = { Text(user.username) }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !erase || confirm.trim() == user.username,
+                onClick = { onDelete(erase) },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(if (erase) "Erase permanently" else "Remove account") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun DeleteOption(selected: Boolean, title: String, text: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+            RadioButton(selected = selected, onClick = onClick)
+            Column(Modifier.padding(start = 4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -299,7 +519,14 @@ private fun CreateUserDialog(onDismiss: () -> Unit, onCreate: (String, String, S
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(displayName, { displayName = it }, label = { Text("Display name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    password, { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    supportingText = { if (password.isNotEmpty() && password.length < 8) Text("At least 8 characters") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = isAdmin, onCheckedChange = { isAdmin = it })

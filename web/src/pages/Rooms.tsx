@@ -67,7 +67,7 @@ export default function Rooms() {
   const modalFilteredUsers = useMemo(
     () =>
       users
-        .filter((u) => u.id !== me.id)
+        .filter((u) => u.id !== me.id && !u.disabled)
         .filter((u) =>
           memberSearch
             ? u.display_name.toLowerCase().includes(memberSearch.toLowerCase()) || u.username.toLowerCase().includes(memberSearch.toLowerCase())

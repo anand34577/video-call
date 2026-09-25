@@ -371,7 +371,7 @@ body {
   }
 }
 .animate-view-in {
-  animation: view-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: view-in 0.24s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Ambient brand glow — one static wash behind auth and empty states */
@@ -515,4 +515,76 @@ body {
 /* Safe-area helper for iOS home indicator */
 .pb-safe-b {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Backdrop fade for modals and sheets */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out;
+}
+
+/* List rows rise in; set --i on each row to stagger them */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-rise {
+  animation: rise-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 28ms);
+}
+
+/* New chat message */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-msg-in {
+  animation: msg-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Toasts slide in from the side and show time left */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.toast-timer {
+  transform-origin: left;
+  animation: toast-timer linear forwards;
+}
+
+/* Cards lift slightly on hover */
+.hover-lift {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }

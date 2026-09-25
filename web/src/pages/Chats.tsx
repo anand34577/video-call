@@ -254,7 +254,7 @@ export default function Chats() {
             />
           )}
 
-          {filteredGroups.map((g) => {
+          {filteredGroups.map((g, i) => {
             const last = lastOf("g", g.id);
             const n = unread[`g:${g.id}`] ?? 0;
             const hasActiveCall = !!activeGroupRooms[g.id];
@@ -262,7 +262,8 @@ export default function Chats() {
             return (
               <div
                 key={g.id}
-                className={`w-full flex items-center gap-1 rounded-2xl transition duration-150 border ${
+                style={{ "--i": i } as React.CSSProperties}
+                className={`animate-rise w-full flex items-center gap-1 rounded-2xl transition duration-150 border ${
                   isSelected
                     ? "bg-brand/10 border-brand/30 shadow-xs"
                     : "border-transparent hover:bg-surface-hover"
@@ -327,19 +328,20 @@ export default function Chats() {
             );
           })}
 
-          {filteredUsers.map((u) => {
+          {filteredUsers.map((u, i) => {
             const last = lastOf("dm", u.id);
             const n = unread[`dm:${u.id}`] ?? 0;
             const isSelected = active?.kind === "dm" && active.peerID === u.id;
             return (
               <button
                 key={u.id}
+                style={{ "--i": filteredGroups.length + i } as React.CSSProperties}
                 onClick={() => {
                   openDm(u.id);
                   setMobilePanel(true);
                 }}
                 aria-label={`Open chat with ${u.display_name}${n > 0 ? `, ${n} unread` : ""}`}
-                className={`w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition duration-150 cursor-pointer border ${
+                className={`animate-rise w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition duration-150 cursor-pointer border ${
                   isSelected
                     ? "bg-brand/10 border-brand/30 shadow-xs"
                     : "border-transparent hover:bg-surface-hover"
@@ -484,7 +486,7 @@ export default function Chats() {
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <select value={searchSender} onChange={(e) => setSearchSender(Number(e.target.value))} aria-label="Filter by sender" className={`${inputCls} w-auto py-1.5 text-xs`}>
               <option value={0}>Anyone</option>
-              {users.map((u) => (
+              {users.filter((u) => !u.deleted).map((u) => (
                 <option key={u.id} value={u.id}>{u.display_name}</option>
               ))}
             </select>

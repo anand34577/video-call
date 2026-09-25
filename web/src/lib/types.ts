@@ -8,6 +8,8 @@ export interface User {
   avatar_file_id: number | null;
   email: string | null;
   disabled: boolean;
+  /** Removed by an admin; shown as "Deleted user" and can't be re-enabled. */
+  deleted: boolean;
   created_at: string;
   oidc_linked: boolean;
   status: "online" | "away" | "dnd" | "offline";

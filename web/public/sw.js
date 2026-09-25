@@ -2,7 +2,7 @@
 // screen icon, standalone window) and a friendlier reload after a brief
 // network blip, not offline messaging. It never touches /api or /ws, so
 // auth, chat, and calls always go straight to the live server.
-const CACHE = "vc-shell-v1";
+const CACHE = "vc-shell-v2";
 const SHELL_PATHS = ["/", "/manifest.json"];
 // Each deploy adds new content-hashed assets under the same cache name;
 // keep only the most recent entries so the cache doesn't grow forever.
@@ -42,5 +42,22 @@ self.addEventListener("fetch", (event) => {
         return res;
       })
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))),
+  );
+});
+
+// Clicking a notification brings the app to the front and tells the page
+// which one was clicked, so it can open that conversation.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const tag = event.notification.tag;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const client = clients[0];
+      if (client) {
+        client.postMessage({ type: "notification-click", tag });
+        return client.focus();
+      }
+      return self.clients.openWindow("/");
+    }),
   );
 });

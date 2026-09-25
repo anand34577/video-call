@@ -1,5 +1,7 @@
 /** Media capture, device management, ringtone and notification helpers. */
 
+import { toast } from "../store/toast";
+
 // getDisplayMedia (screen/tab capture — used for both screen-sharing and the
 // local call-recording feature) isn't implemented by mobile browsers at all
 // (Chrome/Firefox/Safari on Android and iOS). Callers use this to disable
@@ -140,38 +142,113 @@ export function stopRingtone() {
 }
 
 // ---- notifications ----
+//
+// While Vision Call is the focused window, new messages show as an in-app
+// toast. Otherwise a system notification is shown (through the service
+// worker where possible, which is the only way that works on Android
+// Chrome). Browsers only allow system notifications over HTTPS.
 
-let notifPermission: NotificationPermission =
-  typeof Notification !== "undefined" ? Notification.permission : "denied";
+const clickHandlers = new Map<string, () => void>();
 
-export async function requestNotificationPermission() {
-  if (typeof Notification === "undefined") return;
+export function notificationsSupported(): boolean {
+  return typeof Notification !== "undefined" && window.isSecureContext;
+}
+
+export function getNotificationPermissionStatus(): NotificationPermission {
+  if (!notificationsSupported()) return "denied";
+  return Notification.permission;
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (!notificationsSupported()) return "denied";
   if (Notification.permission === "default") {
     try {
-      notifPermission = await Notification.requestPermission();
+      return await Notification.requestPermission();
     } catch {
       /* ignore */
     }
   }
+  return Notification.permission;
 }
 
-export function notify(title: string, body: string, tag?: string) {
-  if (typeof Notification === "undefined" || notifPermission !== "granted") return;
-  if (!document.hidden) return;
+// The service worker tells the page which notification was clicked.
+if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.type !== "notification-click") return;
+    window.focus();
+    clickHandlers.get(e.data.tag)?.();
+  });
+}
+
+let chimeCtx: AudioContext | null = null;
+
+/** A short, soft two-note chime for new messages. */
+export function playMessageChime() {
   try {
-    const n = new Notification(title, { body, tag, icon: '/icon-192.png' });
-    n.onclick = () => {
-      window.focus();
-      n.close();
-    };
+    chimeCtx ??= new AudioContext();
+    const ctx = chimeCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const t0 = ctx.currentTime;
+    [880, 1320].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const start = t0 + i * 0.09;
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.3);
+    });
   } catch {
-    /* some browsers require ServiceWorker; silent ignore */
+    /* audio unavailable */
   }
 }
 
-export function getNotificationPermissionStatus(): NotificationPermission {
-  if (typeof Notification === "undefined") return "denied";
-  return Notification.permission;
+export interface NotifyOptions {
+  /** Groups repeated notifications, e.g. one per conversation. */
+  tag?: string;
+  /** Opens whatever the notification is about. */
+  onClick?: () => void;
+  /** Show a toast when the app is in front (default true). */
+  inApp?: boolean;
+  /** Play the message chime (default true). */
+  sound?: boolean;
+}
+
+export function notify(title: string, body: string, opts: NotifyOptions = {}) {
+  const { tag = "visioncall", onClick, inApp = true, sound = true } = opts;
+  const inFront = document.visibilityState === "visible" && document.hasFocus();
+  if (sound) playMessageChime();
+
+  if (inFront || getNotificationPermissionStatus() !== "granted") {
+    // No system notification needed or possible: show a toast instead. It's
+    // still on screen when the user comes back to the tab.
+    if (inApp) toast.message(title, body, onClick);
+    return;
+  }
+
+  if (onClick) clickHandlers.set(tag, onClick);
+  const options: NotificationOptions = { body, tag, icon: "/icon-192.png", badge: "/icon-192.png" };
+  const showDirect = () => {
+    try {
+      const n = new Notification(title, options);
+      n.onclick = () => {
+        window.focus();
+        onClick?.();
+        n.close();
+      };
+    } catch {
+      if (inApp) toast.message(title, body, onClick);
+    }
+  };
+  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, options)).catch(showDirect);
+  } else {
+    showDirect();
+  }
 }
 
 // ---- audio meter & speaker test ----

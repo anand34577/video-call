@@ -94,7 +94,7 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		"uptime_hours": time.Since(a.startedAt).Hours(),
 		"db_driver":    string(a.db.Dialect()),
 	}
-	if users, err := a.db.CountUsers(); err == nil {
+	if users, err := a.db.CountActiveUsers(); err == nil {
 		stats["users"] = users
 	}
 	if a.hub != nil {
@@ -123,7 +123,7 @@ func (a *API) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gauge("visioncall_uptime_seconds", "Seconds since the server started.", time.Since(a.startedAt).Seconds())
-	if users, err := a.db.CountUsers(); err == nil {
+	if users, err := a.db.CountActiveUsers(); err == nil {
 		gauge("visioncall_users_total", "Total registered user accounts.", float64(users))
 	}
 	if a.hub != nil {

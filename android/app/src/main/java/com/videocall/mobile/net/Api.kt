@@ -234,7 +234,10 @@ class Api(private val context: Context, val baseUrl: String) {
         exec("/api/users", "POST", jsonBody(mapOf("username" to username, "display_name" to displayName, "password" to password, "role" to role, "email" to email)))
     suspend fun updateUser(id: Long, displayName: String? = null, role: String? = null, disabled: Boolean? = null, password: String? = null, email: String? = null): User =
         exec("/api/users/$id", "PATCH", jsonBody(mapOf("display_name" to displayName, "role" to role, "disabled" to disabled, "password" to password, "email" to email)))
-    suspend fun deleteUser(id: Long): ApiOk = exec("/api/users/$id", "DELETE")
+    /** permanent = false keeps their messages as "Deleted user"; true erases everything. */
+    suspend fun deleteUser(id: Long, permanent: Boolean = false): ApiOk =
+        exec("/api/users/$id" + if (permanent) "?permanent=true" else "", "DELETE")
+    suspend fun signOutUser(id: Long): ApiOk = exec("/api/users/$id/sign-out", "POST")
     suspend fun listSettings(): List<SettingView> = exec("/api/admin/settings")
     suspend fun updateSetting(key: String, value: String): ApiOk =
         exec("/api/admin/settings/${java.net.URLEncoder.encode(key, "UTF-8")}", "PUT", jsonBody(mapOf("value" to value)))

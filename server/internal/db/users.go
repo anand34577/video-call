@@ -21,9 +21,12 @@ type User struct {
 	AvatarFileID *int64  `json:"avatar_file_id"`
 	Email        *string `json:"email"`
 	Disabled     bool    `json:"disabled"`
-	CreatedAt    string  `json:"created_at"`
-	OIDCIssuer   *string `json:"-"`
-	OIDCSubject  *string `json:"-"`
+	// Deleted accounts were removed by an admin but still appear as
+	// "Deleted user" in other people's history. They can't be re-enabled.
+	Deleted     bool    `json:"deleted"`
+	CreatedAt   string  `json:"created_at"`
+	OIDCIssuer  *string `json:"-"`
+	OIDCSubject *string `json:"-"`
 	// Status is filled at runtime from the presence hub, not stored here.
 	Status string `json:"status"`
 	// Preferences stores UI theme and styling preferences
@@ -53,14 +56,14 @@ type UserBrief struct {
 
 var ErrNotFound = errors.New("not found")
 
-const userCols = `id, username, display_name, password_hash, role, avatar_file_id, email, disabled, created_at, oidc_issuer, oidc_subject`
+const userCols = `id, username, display_name, password_hash, role, avatar_file_id, email, disabled, deleted, created_at, oidc_issuer, oidc_subject`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	u := &User{}
 	var avatar sql.NullInt64
 	var email, oidcIssuer, oidcSubject sql.NullString
-	var disabled int
-	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &avatar, &email, &disabled, &u.CreatedAt, &oidcIssuer, &oidcSubject); err != nil {
+	var disabled, deleted int
+	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Role, &avatar, &email, &disabled, &deleted, &u.CreatedAt, &oidcIssuer, &oidcSubject); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -74,6 +77,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	u.OIDCIssuer = nullStringPtr(oidcIssuer)
 	u.OIDCSubject = nullStringPtr(oidcSubject)
 	u.Disabled = disabled != 0
+	u.Deleted = deleted != 0
 	return u, nil
 }
 
@@ -83,9 +87,16 @@ func (d *DB) CountUsers() (int, error) {
 	return n, err
 }
 
+// CountActiveUsers counts accounts that haven't been deleted.
+func (d *DB) CountActiveUsers() (int, error) {
+	var n int
+	err := d.QueryRow(`SELECT COUNT(*) FROM users WHERE deleted = 0`).Scan(&n)
+	return n, err
+}
+
 func (d *DB) CountEnabledAdmins() (int, error) {
 	var n int
-	err := d.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
+	err := d.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0 AND deleted = 0`).Scan(&n)
 	return n, err
 }
 
@@ -295,12 +306,74 @@ const unusablePasswordHash = `$argon2id$v=19$m=0,t=0,p=0$-$-`
 // from ever using it again) and invalidates any outstanding password-reset
 // token, matching every other password-mutating path in this file.
 func (d *DB) AnonymizeUser(id int64) error {
-	_, err := d.Exec(`UPDATE users SET username = ?, display_name = 'Deleted user', password_hash = ?, avatar_file_id = NULL, email = NULL, oidc_issuer = NULL, oidc_subject = NULL, disabled = 1 WHERE id = ?`,
+	_, err := d.Exec(`UPDATE users SET username = ?, display_name = 'Deleted user', password_hash = ?, avatar_file_id = NULL, email = NULL, oidc_issuer = NULL, oidc_subject = NULL, role = 'user', disabled = 1, deleted = 1 WHERE id = ?`,
 		fmt.Sprintf("deleted-user-%d", id), unusablePasswordHash, id)
 	if err != nil {
 		return err
 	}
 	return d.DeletePasswordResetTokensForUser(id)
+}
+
+// PurgeUser permanently removes an account and everything tied to it: its
+// messages (in both directions), reactions, call records, uploads, devices,
+// rooms and sessions all go through ON DELETE CASCADE. Groups the user
+// created are handed to another member first (a group admin if there is
+// one) so other people's group conversations survive; a group with nobody
+// else in it is removed.
+func (d *DB) PurgeUser(id int64) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT id FROM groups WHERE created_by = ?`, id)
+	if err != nil {
+		return err
+	}
+	var groups []int64
+	for rows.Next() {
+		var g int64
+		if err := rows.Scan(&g); err != nil {
+			rows.Close()
+			return err
+		}
+		groups = append(groups, g)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, g := range groups {
+		var heir int64
+		err := tx.QueryRow(`SELECT user_id FROM group_members WHERE group_id = ? AND user_id <> ?
+			ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, user_id LIMIT 1`, g, id).Scan(&heir)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := tx.Exec(`DELETE FROM groups WHERE id = ?`, g); err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		default:
+			if _, err := tx.Exec(`UPDATE groups SET created_by = ? WHERE id = ?`, heir, g); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`, g, heir); err != nil {
+				return err
+			}
+		}
+	}
+
+	// user_preferences has no foreign key on MySQL, so clear it explicitly.
+	if _, err := tx.Exec(`DELETE FROM user_preferences WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---- sessions ----

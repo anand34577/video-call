@@ -19,6 +19,8 @@ data class User(
     val avatar_file_id: Long? = null,
     val email: String? = null,
     val disabled: Boolean = false,
+    // Removed by an admin; shown as "Deleted user" and can't be re-enabled.
+    val deleted: Boolean = false,
     val created_at: String = "",
     val oidc_linked: Boolean = false,
     val status: String = "offline",

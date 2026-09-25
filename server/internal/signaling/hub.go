@@ -300,6 +300,15 @@ func (h *Hub) sendToUser(userID int64, typ string, data any) bool {
 	return c.Send(typ, data)
 }
 
+// DirectoryChanged tells every connected app to reload the people list, so
+// an account an admin just created, suspended or removed shows up (or
+// disappears) for everyone at once.
+func (h *Hub) DirectoryChanged() { h.broadcast("directory:changed", nil, nil) }
+
+// AccountUpdated tells a user's own app to reload their profile, for example
+// after an admin changes their role or name.
+func (h *Hub) AccountUpdated(userID int64) { h.sendToUser(userID, "account:updated", nil) }
+
 func (h *Hub) broadcast(typ string, data any, except *int64) {
 	payload, err := marshalEnvelope(typ, data)
 	if err != nil {
@@ -401,12 +410,14 @@ func (h *Hub) ActiveCalls() int {
 }
 
 // KickUser force-disconnects a user (e.g. admin disabled / deleted the account).
-func (h *Hub) KickUser(userID int64) {
+// KickUser signs a connected user out right away. reason tells their app
+// what to say: "suspended", "deleted", "password_changed" or "signed_out".
+func (h *Hub) KickUser(userID int64, reason string) {
 	h.callStateMu.Lock()
 	defer h.callStateMu.Unlock()
 	if c := h.client(userID); c != nil {
-		c.log.Info("ws: user kicked by admin")
-		c.Kick("account updated")
+		c.log.Info("ws: user signed out by the server", "reason", reason)
+		c.Kick(reason)
 	}
 	h.cancelRoomLeave(userID)
 	h.engine.Leave(userID)

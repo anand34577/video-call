@@ -51,7 +51,7 @@ fun LoginScreen(onLoggedIn: () -> Unit, onOidcLogin: () -> Unit = {}, onForgotPa
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(SessionManager.consumeLogoutReason()) }
     var oidcLabel by remember { mutableStateOf<String?>(null) }
     var resetEnabled by remember { mutableStateOf(false) }
 

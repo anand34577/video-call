@@ -590,7 +590,15 @@ export const useChats = create<ChatsState>((set, get) => ({
         // Do Not Disturb still tracks unread counts, just no popup/sound.
         if (usePresence.getState().myStatus !== "dnd") {
           const body = msg.is_encrypted ? "Encrypted message" : msg.file && !msg.content ? `Attachment: ${msg.file.name}` : msg.content;
-          notify(title, body, k);
+          const c = convo;
+          notify(title, body, {
+            tag: k,
+            onClick: () => {
+              window.location.hash = "chats";
+              if (c.kind === "dm") get().openDm(c.peerID);
+              else get().openGroup(c.groupID);
+            },
+          });
         }
       }
       if (isActive && !document.hidden) {

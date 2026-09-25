@@ -27,7 +27,20 @@ People can't sign themselves up. An admin creates every account:
 2. Enter a username, a display name and a starting password, and pick the role (**user** or **admin**).
 3. Share the address, username and password with that person. They can change the password under **Settings**.
 
-From the same screen you can reset someone's password, disable an account (they're signed out immediately) or delete it.
+### Managing accounts
+
+Everything happens in **Admin > Users**. Filter the list by admins, users, suspended or deleted accounts, and search by name, username or email.
+
+| Action | What happens |
+|---|---|
+| **Edit** | Change the name, role, email or password. Admins can change any account's password, including another admin's. A new password signs that person out of every device. |
+| **Suspend** | They're signed out on the spot, even in the middle of a call, and can't sign in until you reactivate them. Nothing is deleted. |
+| **Reactivate** | A suspended account can sign in again. |
+| **Sign out everywhere** | In the edit dialog. Ends every session without suspending the account, for example after a lost phone. |
+| **Delete > Remove account** | The account can never sign in again. Their messages stay in other people's chats, shown as "Deleted user". Removed accounts appear under the **Deleted** filter. |
+| **Delete > Erase everything** | Permanently deletes the account with all their messages (in both directions), direct chats, calls, files and rooms. Groups they created pass to another member. You type the username to confirm. A removed account can be erased later too. |
+
+Changes reach everyone straight away: people lists update on every open app, and someone who is suspended, removed or given a new password sees a message explaining why they were signed out. The last active admin can't be suspended, demoted or deleted, and you can't suspend or delete yourself.
 
 Want people to sign in with your company login instead? Set up single sign-on, see [Configuration](Configuration#single-sign-on).
 

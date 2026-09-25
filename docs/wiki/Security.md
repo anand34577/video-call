@@ -8,7 +8,7 @@ Vision Call is built for private networks: an office LAN, a home network or a VP
 - Passwords are stored with argon2id, a slow, salted hash designed for passwords.
 - Repeated wrong passwords are rate-limited: 5 failures in 15 minutes per account and address.
 - Sign-ins are kept in `httpOnly`, `SameSite=Lax` cookies that page scripts can't read. They expire after 12 hours by default (`SESSION_TTL_HOURS`).
-- Disabling or deleting an account signs it out everywhere immediately.
+- Suspending, removing or changing the password of an account signs it out everywhere immediately, even mid-call.
 - Single sign-on through OpenID Connect is available, see [Configuration](Configuration#single-sign-on).
 
 ## Messages

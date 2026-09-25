@@ -956,7 +956,7 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
           lastDay = day;
           const mine = m.sender_id === me.id;
           return (
-            <div key={m.id}>
+            <div key={m.id} className="animate-msg-in">
               {showDay && (
                 <div className="flex justify-center py-3">
                   <span className="text-[11px] font-medium text-zinc-400 bg-zinc-200/60 bg-zinc-800/60 rounded-full px-3 py-1">

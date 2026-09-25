@@ -1,7 +1,10 @@
 package com.videocall.mobile.session
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -37,6 +40,18 @@ object SessionManager {
     // always forcing "online" and silently clearing a user-set DND.
     private val _myStatus = MutableStateFlow("online")
     val myStatus: StateFlow<String> = _myStatus
+
+    // Why the server signed us out, shown once on the sign-in screen.
+    private var logoutReason: String? = null
+    fun consumeLogoutReason(): String? = logoutReason.also { logoutReason = null }
+
+    private val logoutMessages = mapOf(
+        "signed_in_elsewhere" to "You were signed out because your account was signed in on another device.",
+        "suspended" to "Your account has been suspended by an administrator.",
+        "deleted" to "Your account has been removed by an administrator.",
+        "password_changed" to "Your password was changed. Please sign in with the new password.",
+        "signed_out" to "An administrator signed you out. Please sign in again.",
+    )
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -130,7 +145,16 @@ object SessionManager {
             val status = data.str("status") ?: return@on
             _presence.value = _presence.value.toMutableMap().apply { put(id, status) }
         }
-        ws.on("force:logout") { logoutLocal() }
+        ws.on("force:logout") { data ->
+            logoutReason = logoutMessages[data.str("reason")] ?: "You were signed out. Please sign in again."
+            logoutLocal()
+        }
+        // An admin changed this account (for example its role): reload it.
+        ws.on("account:updated") {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { api.me() }.onSuccess { setMe(it) }
+            }
+        }
         // Re-assert our last chosen status on (re)connect — must NOT hardcode
         // "online" here, or a user-set DND silently gets cleared on every
         // automatic reconnect (network blip, app foreground/background).

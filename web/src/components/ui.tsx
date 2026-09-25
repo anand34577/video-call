@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { X, CheckCircle2, AlertTriangle, XCircle, Info, Loader2 } from "lucide-react";
+import { X, CheckCircle2, AlertTriangle, XCircle, Info, Loader2, MessageCircle } from "lucide-react";
 import { avatarColor, initials } from "../lib/util";
 import { cx } from "../lib/cx";
 import { useToast } from "../store/toast";
@@ -139,7 +139,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 transition-all duration-200"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px] p-0 sm:p-4 animate-fade-in"
       onClick={onClose}
       role="presentation"
     >
@@ -670,37 +670,58 @@ export function Skeleton({ className = "" }: { className?: string }) {
 // app root; raise toasts anywhere with `toast.success("...")` from
 // store/toast, or the useToast() hook inside components.
 const toastStyles = {
-  success: { wrap: "border-emerald-500/30 bg-emerald-950/90 text-emerald-100", Icon: CheckCircle2 },
-  error: { wrap: "border-rose-500/30 bg-rose-950/90 text-rose-100", Icon: XCircle },
-  info: { wrap: "border-blue-500/30 bg-blue-950/90 text-blue-100", Icon: Info },
+  success: { wrap: "border-emerald-500/30", icon: "text-emerald-400", bar: "bg-emerald-400", Icon: CheckCircle2 },
+  error: { wrap: "border-rose-500/30", icon: "text-rose-400", bar: "bg-rose-400", Icon: XCircle },
+  info: { wrap: "border-sky-500/30", icon: "text-sky-400", bar: "bg-sky-400", Icon: Info },
+  message: { wrap: "border-brand/40", icon: "text-brand", bar: "bg-brand", Icon: MessageCircle },
 } as const;
 
 export function ToastHost() {
   const { toasts, dismiss } = useToast();
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:left-auto z-[60] flex flex-col gap-2 items-center sm:items-end pb-safe-b">
+    <div
+      className="fixed top-3 inset-x-3 sm:inset-x-auto sm:top-auto sm:bottom-4 sm:right-4 z-[60] flex flex-col gap-2 items-stretch sm:items-end pointer-events-none"
+      aria-live="polite"
+    >
       {toasts.map((t) => {
-        const { wrap, Icon } = toastStyles[t.variant];
+        const { wrap, icon, bar, Icon } = toastStyles[t.variant];
+        const clickable = !!t.onClick;
         return (
           <div
             key={t.id}
             role={t.variant === "error" ? "alert" : "status"}
+            onClick={() => {
+              if (!t.onClick) return;
+              t.onClick();
+              dismiss(t.id);
+            }}
             className={cx(
-              "flex items-start gap-2.5 w-full sm:w-auto sm:max-w-sm rounded-lg border px-3.5 py-3 text-sm shadow-lg animate-sheet-in sm:animate-modal-in",
+              "pointer-events-auto relative overflow-hidden flex items-start gap-3 w-full sm:w-80 rounded-xl border bg-zinc-900/95 text-zinc-100 px-3.5 py-3 text-sm shadow-2xl backdrop-blur animate-toast-in",
               wrap,
+              clickable && "cursor-pointer hover:bg-zinc-800/95",
             )}
           >
-            <Icon className="h-4 w-4 shrink-0 mt-0.5" />
-            <span className="leading-snug flex-1">{t.message}</span>
+            <Icon className={cx("h-4 w-4 shrink-0 mt-0.5", icon)} />
+            <div className="flex-1 min-w-0">
+              {t.title && <p className="font-semibold leading-snug truncate">{t.title}</p>}
+              <p className={cx("leading-snug", t.title ? "text-zinc-300 line-clamp-2" : "")}>{t.message}</p>
+            </div>
             <button
               type="button"
-              onClick={() => dismiss(t.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                dismiss(t.id);
+              }}
               aria-label="Dismiss"
-              className="shrink-0 opacity-70 hover:opacity-100 cursor-pointer"
+              className="shrink-0 opacity-60 hover:opacity-100 cursor-pointer"
             >
               <X className="h-3.5 w-3.5" />
             </button>
+            <span
+              className={cx("toast-timer absolute left-0 bottom-0 h-0.5 w-full opacity-70", bar)}
+              style={{ animationDuration: `${t.duration}ms` }}
+            />
           </div>
         );
       })}

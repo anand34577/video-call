@@ -767,7 +767,7 @@ export const useCalls = create<CallsState>((set, get) => ({
       }
       set({ incoming: { callId: d.call_id, from: d.from, video: d.video } });
       startRingtone();
-      notify("Incoming call", `${d.from.display_name} is calling you`, "call");
+      notify("Incoming call", `${d.from.display_name} is calling you`, { tag: "call", inApp: false, sound: false });
       // Tell the caller this device is actually ringing now, not just that
       // the invite was delivered — see call:ringing below for the caller
       // side. Without this, the caller only ever finds out via a final
@@ -853,7 +853,7 @@ export const useCalls = create<CallsState>((set, get) => ({
       if (get().status !== "idle" || get().roomInvite || get().incoming) return;
       set({ roomInvite: { roomId: d.room_id, groupName: d.group_name, from: d.from } });
       startRingtone();
-      notify("Group call", `${d.from.display_name} started a call in ${d.group_name}`, "room");
+      notify("Group call", `${d.from.display_name} started a call in ${d.group_name}`, { tag: "room", inApp: false, sound: false });
     });
 
     ws.on("room:joined", (d) => {

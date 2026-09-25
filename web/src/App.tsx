@@ -5,7 +5,7 @@ import { useDirectory } from "./store/directory";
 import { useChats } from "./store/chats";
 import { useCalls } from "./store/calls";
 import { ws } from "./lib/ws";
-import { setUnauthorizedHandler } from "./lib/api";
+import { api, setUnauthorizedHandler } from "./lib/api";
 import { clearLocalUserData } from "./lib/session";
 import { ensureDeviceRegistered } from "./lib/crypto";
 import Login from "./pages/Login";
@@ -55,12 +55,15 @@ export default function App() {
       sessionStorage.setItem("vc.logoutReason", reason);
       location.reload();
     };
+    const reasons: Record<string, string> = {
+      signed_in_elsewhere: "You were signed out because your account was signed in on another device.",
+      suspended: "Your account has been suspended by an administrator.",
+      deleted: "Your account has been removed by an administrator.",
+      password_changed: "Your password was changed. Please sign in with the new password.",
+      signed_out: "An administrator signed you out. Please sign in again.",
+    };
     const onForceLogout = (data: { reason?: string }) => {
-      forceSignOut(
-        data?.reason === "signed_in_elsewhere"
-          ? "You were signed out because your account was signed in on another device."
-          : "You were signed out because your account was updated. Please sign in again.",
-      );
+      forceSignOut(reasons[data?.reason ?? ""] ?? "You were signed out. Please sign in again.");
     };
     const offForce = ws.on("force:logout", onForceLogout);
     setUnauthorizedHandler(() => forceSignOut("Your session expired. Please sign in again."));
@@ -87,6 +90,19 @@ export default function App() {
     const offSync = ws.on("presence:sync", (d) => {
       useDirectory.getState().presenceSync(d.users ?? []);
     });
+    // An admin created, changed, suspended or removed someone.
+    const offDirectory = ws.on("directory:changed", () => {
+      useDirectory.getState().fetchUsers();
+    });
+    // An admin changed this account (for example its role); reload it so
+    // the app shows or hides admin features right away.
+    const offAccount = ws.on("account:updated", async () => {
+      try {
+        setMe(await api.me());
+      } catch {
+        /* the next request will sign out if the session is gone */
+      }
+    });
 
     return () => {
       offForce();
@@ -94,6 +110,8 @@ export default function App() {
       offOpen();
       offPresence();
       offSync();
+      offDirectory();
+      offAccount();
       // A logout unmounts the call overlay without giving the WebSocket
       // close handler a chance to release local media tracks.
       if (!useAuth.getState().me) useCalls.getState().hangup();

@@ -14,11 +14,14 @@ import {
   MoreHorizontal,
   X,
   Palette,
+  Bell,
 } from "lucide-react";
 import { useAuth } from "../store/auth";
 import { useChats } from "../store/chats";
 import { usePresence } from "../store/presence";
 import { ws } from "../lib/ws";
+import { getNotificationPermissionStatus, notificationsSupported, requestNotificationPermission } from "../lib/media";
+import { toast } from "../store/toast";
 import { Avatar, PresenceDot, Menu, MenuItem } from "../components/ui";
 import { THEMES, savePreferencesToDb, type ThemeId } from "../lib/theme";
 import Chats from "./Chats";
@@ -152,11 +155,46 @@ export default function Shell() {
   // reuses the same views so no feature moves or disappears.
   const primaryMobile = navItems.filter((n) => n.id === "chats" || n.id === "directory" || n.id === "calls" || n.id === "rooms");
   const moreMobile = navItems.filter((n) => n.id === "admin" || n.id === "settings");
+  // Browsers only show the permission prompt after a click, so offer it.
+  const [askNotify, setAskNotify] = useState(() => {
+    try {
+      return notificationsSupported() && getNotificationPermissionStatus() === "default" && localStorage.getItem("vc.notifyAsked") !== "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissNotify = () => {
+    setAskNotify(false);
+    try {
+      localStorage.setItem("vc.notifyAsked", "1");
+    } catch {
+      /* ignore */
+    }
+  };
+  const enableNotify = async () => {
+    const result = await requestNotificationPermission();
+    dismissNotify();
+    if (result === "granted") toast.success("Notifications are on.");
+    else toast.info("Notifications are off. You can turn them on in your browser's site settings.");
+  };
+
   const [showMore, setShowMore] = useState(false);
   const moreActive = view === "admin" || view === "settings";
 
   return (
     <div className="flex flex-col h-full app-shell text-ink">
+      {askNotify && (
+        <div className="bg-brand/10 border-b border-brand/20 text-ink text-xs px-4 py-2 flex items-center justify-center gap-3 font-medium shrink-0 z-50 animate-fade-in">
+          <Bell className="h-3.5 w-3.5 text-brand" />
+          <span>Get notified about new messages and calls.</span>
+          <button onClick={() => void enableNotify()} className="font-semibold text-brand hover:text-brand-hover underline underline-offset-2 cursor-pointer">
+            Turn on
+          </button>
+          <button onClick={dismissNotify} aria-label="Dismiss" className="text-ink-muted hover:text-ink cursor-pointer">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {/* Reconnecting banners */}
       {!connected && replaced && (
         <div className="bg-surface/95 backdrop-blur-sm text-ink-secondary text-xs px-4 py-2 flex items-center justify-center gap-2 font-medium shrink-0 z-50 border-b border-line">

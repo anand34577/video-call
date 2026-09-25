@@ -124,11 +124,12 @@ export default function Directory() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {filtered.map((u) => (
+          {filtered.map((u, i) => (
             <article
               key={u.id}
+              style={{ "--i": i } as React.CSSProperties}
               aria-label={`${u.display_name}, ${presenceLabel(u.status)}`}
-              className="rounded-xl border border-line bg-surface text-ink p-4 flex items-center gap-3.5 hover:border-line-strong hover:shadow-md transition-all duration-150 group"
+              className="animate-rise hover-lift rounded-xl border border-line bg-surface text-ink p-4 flex items-center gap-3.5 hover:border-line-strong group"
             >
               <button
                 onClick={() => openDm(u.id)}

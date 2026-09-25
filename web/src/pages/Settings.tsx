@@ -699,7 +699,7 @@ export default function Settings() {
                 </span>
               )}
               {notifStatus === "denied" && (
-                <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 px-3 py-1 rounded-full">
+                <span title={window.isSecureContext ? "Blocked in browser settings" : "Needs HTTPS"} className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 px-3 py-1 rounded-full">
                   <XCircle className="h-3.5 w-3.5" /> Blocked
                 </span>
               )}
@@ -710,9 +710,14 @@ export default function Settings() {
               )}
             </div>
           </div>
-          {notifStatus === "denied" && (
+          {notifStatus === "denied" && !window.isSecureContext && (
             <Alert variant="warning">
-              Notifications are blocked in your browser settings. Click the lock/settings icon next to your URL bar to allow notifications.
+              Browsers only allow notifications over HTTPS. Open Vision Call with its https:// address (port 8443) to turn them on. Until then, new messages show as pop-ups inside the app.
+            </Alert>
+          )}
+          {notifStatus === "denied" && window.isSecureContext && (
+            <Alert variant="warning">
+              Notifications are blocked for this site. Click the lock icon next to the address bar, allow notifications, then reload the page.
             </Alert>
           )}
         </section>
