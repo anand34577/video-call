@@ -1143,6 +1143,11 @@ export const useCalls = create<CallsState>((set, get) => ({
 
     // A group's call finished (last participant left): drop its "join" badge.
     ws.on("room:ended", (d) => {
+      // The call ended while it was still ringing here: stop ringing.
+      if (get().roomInvite && get().roomInvite?.roomId === d?.room_id) {
+        stopRingtone();
+        set({ roomInvite: null });
+      }
       const gid = Number(d?.group_id) || 0;
       if (!gid) return;
       set((s) => {

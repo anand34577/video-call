@@ -46,6 +46,8 @@ import com.videocall.mobile.ui.theme.ThemeState
 import com.videocall.mobile.ui.theme.VcColor
 import com.videocall.mobile.ui.util.isIgnoringBatteryOptimizations
 import com.videocall.mobile.ui.util.requestIgnoreBatteryOptimizations
+import com.videocall.mobile.ui.util.canUseFullScreenIntent
+import com.videocall.mobile.ui.util.requestFullScreenIntent
 
 @Composable
 fun SettingsScreen(
@@ -92,9 +94,13 @@ fun SettingsScreen(
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var batteryExempt by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
+    var fullScreenOk by remember { mutableStateOf(canUseFullScreenIntent(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) batteryExempt = isIgnoringBatteryOptimizations(context)
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                batteryExempt = isIgnoringBatteryOptimizations(context)
+                fullScreenOk = canUseFullScreenIntent(context)
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -237,6 +243,15 @@ fun SettingsScreen(
                         subtitle = "Needed to receive calls when the app is closed (no push service on a private network)",
                         tint = VcColor.Danger,
                         onClick = { requestIgnoreBatteryOptimizations(context) },
+                    )
+                    HorizontalDivider(Modifier.padding(start = 64.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                }
+                if (!fullScreenOk) {
+                    SettingsRow(
+                        Icons.Default.PhoneInTalk, "Show calls on the lock screen",
+                        subtitle = "Lets incoming calls open full screen, like a regular phone call",
+                        tint = VcColor.Danger,
+                        onClick = { requestFullScreenIntent(context) },
                     )
                     HorizontalDivider(Modifier.padding(start = 64.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 }

@@ -56,6 +56,11 @@ class App : Application(), coil.ImageLoaderFactory {
             }
         )
         nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_MISSED, "Missed calls", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Calls you didn't answer"
+            }
+        )
+        nm.createNotificationChannel(
             NotificationChannel(CHANNEL_CALL_ONGOING, "Ongoing call", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Shown while you're on a call"
                 setShowBadge(false)
@@ -77,6 +82,7 @@ class App : Application(), coil.ImageLoaderFactory {
     companion object {
         const val CHANNEL_RINGING = "calls_ringing"
         const val CHANNEL_CALL_ONGOING = "call_ongoing"
+        const val CHANNEL_MISSED = "missed_calls"
         const val CHANNEL_MESSAGES = "messages"
         const val CHANNEL_CONNECTION = "connection"
 

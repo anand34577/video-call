@@ -19,10 +19,14 @@ import com.videocall.mobile.R
  * app on every call that arrived while it wasn't open. The process is kept
  * alive by ConnectionService; CallService starts once the call is answered.
  *
- * The notification is silent: Ringer plays the ringtone, so it only sounds once.
+ * Its channel has no sound: Ringer plays the ringtone, so it only rings once.
  */
 object IncomingCallNotifier {
-    private const val NOTIF_ID = 43
+    // Must not clash with ConnectionService (43) or CallService (42): reusing
+    // a foreground service's id replaced its notification, and Android never
+    // lets an app remove that, so the ringing call stayed on screen forever.
+    private const val NOTIF_ID = 44
+    private const val MISSED_ID = 45
 
     fun show(context: Context, state: CallUiState) {
         val incoming = state.incoming
@@ -52,7 +56,7 @@ object IncomingCallNotifier {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setSilent(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .setFullScreenIntent(open, true)
             .addPerson(caller)
@@ -63,6 +67,26 @@ object IncomingCallNotifier {
 
     fun cancel(context: Context) {
         runCatching { context.getSystemService(NotificationManager::class.java).cancel(NOTIF_ID) }
+    }
+
+    /** "Missed call from ..." after a call that rang out or was cancelled. */
+    fun showMissed(context: Context, caller: com.videocall.mobile.net.UserBrief, video: Boolean) {
+        val open = PendingIntent.getActivity(
+            context, 3,
+            Intent(context, com.videocall.mobile.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, App.CHANNEL_MISSED)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Missed ${if (video) "video" else "voice"} call")
+            .setContentText(caller.display_name)
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        runCatching { context.getSystemService(NotificationManager::class.java).notify(MISSED_ID, notification) }
     }
 
     // Answer opens the call screen directly: Android 12+ blocks starting an

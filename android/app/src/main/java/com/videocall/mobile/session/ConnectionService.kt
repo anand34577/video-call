@@ -9,6 +9,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import com.videocall.mobile.App
 import com.videocall.mobile.MainActivity
 
@@ -37,6 +39,14 @@ class ConnectionService : Service() {
         } else {
             startForeground(NOTIF_ID, notification)
         }
+        // START_STICKY means Android may restart this service after killing
+        // the app. Nothing else signs back in then (that normally happens on
+        // the app's first screen), so without this no calls would arrive.
+        if (SessionManager.me.value == null && SessionManager.hasServer) {
+            MainScope().launch {
+                if (!SessionManager.tryResume()) stopSelf()
+            }
+        }
         return START_STICKY
     }
 
@@ -49,7 +59,7 @@ class ConnectionService : Service() {
         return NotificationCompat.Builder(this, App.CHANNEL_CONNECTION)
             .setSmallIcon(com.videocall.mobile.R.drawable.ic_launcher_foreground)
             .setContentTitle("Vision Call")
-            .setContentText("Connected — ready to receive calls")
+            .setContentText("Connected and ready to receive calls")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)
             .setContentIntent(openApp)

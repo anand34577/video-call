@@ -117,6 +117,7 @@ object CallRepository {
             val inc = Incoming(data.str("call_id") ?: return@on, from, data.bool("video") ?: false)
             _state.value = _state.value.copy(status = CallStatus.INCOMING, incoming = inc)
             showRinging()
+            stopRingingAfterTimeout(inc)
             // Tell the caller this device is actually ringing now, not just that
             // the invite was delivered — mirrors web/src/store/calls.ts. Without
             // this, the caller only ever finds out via a final call:ended
@@ -145,7 +146,11 @@ object CallRepository {
             val id = d.str("call_id")
             val s = _state.value
             if (id != null && id != s.callId && id != s.incoming?.callId) return@on
+            val missed = s.incoming
             endCallLocal(callEndReasonToast(d.str("reason")))
+            if (missed != null && !com.videocall.mobile.App.isInForeground) {
+                IncomingCallNotifier.showMissed(appContext, missed.from, missed.video)
+            }
         }
         ws.on("webrtc:relay") { d ->
             if (!isCurrentCall(d.str("call_id"))) return@on
@@ -174,6 +179,10 @@ object CallRepository {
             val inv = RoomInvite(d.str("room_id") ?: return@on, d.str("group_name") ?: "", from)
             _state.value = _state.value.copy(roomInvite = inv)
             showRinging()
+            scope.launch {
+                kotlinx.coroutines.delay(45_000)
+                if (_state.value.roomInvite?.roomId == inv.roomId) _state.value = _state.value.copy(roomInvite = null)
+            }
         }
         ws.on("room:joined") { d ->
             val s = _state.value
@@ -198,7 +207,19 @@ object CallRepository {
             _state.value = _state.value.copy(participants = _state.value.participants.filter { it.user_id != uid })
             room?.remoteTracks?.remove(uid)
         }
+        // The server tells every group member when a group call is over, so a
+        // call that ended while still ringing here stops ringing.
+        ws.on("room:ended") { d ->
+            val invite = _state.value.roomInvite ?: return@on
+            if (d.str("room_id") == invite.roomId) _state.value = _state.value.copy(roomInvite = null)
+        }
         ws.on("room:closed") { d ->
+            // A group call that ended while it was still ringing here.
+            val invite = _state.value.roomInvite
+            if (invite != null && d.str("room_id") == invite.roomId) {
+                _state.value = _state.value.copy(roomInvite = null)
+                return@on
+            }
             if (d.str("room_id") != null && d.str("room_id") != _state.value.roomId) return@on
             endCallLocal("This group call ended")
         }
@@ -300,6 +321,20 @@ object CallRepository {
             runCatching { appContext.startActivity(intent) }
         } else {
             IncomingCallNotifier.show(appContext, _state.value)
+        }
+    }
+
+    // The server gives up on an unanswered call after 45 s and tells us. If
+    // that message never arrives (the connection dropped while ringing),
+    // stop ringing on our own rather than ring forever.
+    private fun stopRingingAfterTimeout(inc: Incoming) {
+        scope.launch {
+            kotlinx.coroutines.delay(55_000)
+            val s = _state.value
+            if (s.incoming?.callId == inc.callId) {
+                _state.value = s.copy(status = CallStatus.IDLE, incoming = null)
+                if (!com.videocall.mobile.App.isInForeground) IncomingCallNotifier.showMissed(appContext, inc.from, inc.video)
+            }
         }
     }
 

@@ -33,6 +33,16 @@ import com.videocall.mobile.ui.theme.isAppInDarkTheme
 class MainActivity : ComponentActivity() {
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    override fun onResume() {
+        super.onResume()
+        // A call may be ringing from a notification the user didn't tap;
+        // opening the app from the launcher should still show it.
+        val call = com.videocall.mobile.call.CallRepository.state.value
+        if (call.incoming != null || call.roomInvite != null) {
+            startActivity(android.content.Intent(this, com.videocall.mobile.call.CallActivity::class.java))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33 &&

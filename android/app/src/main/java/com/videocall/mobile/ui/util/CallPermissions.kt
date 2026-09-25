@@ -63,6 +63,23 @@ fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     return pm.isIgnoringBatteryOptimizations(context.packageName)
 }
 
+/**
+ * Android 14+ only lets an app show a full-screen call screen over the lock
+ * screen with the "full-screen notifications" permission, which the user can
+ * turn off. Without it, incoming calls only show as a notification.
+ */
+fun canUseFullScreenIntent(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < 34) return true
+    val nm = context.getSystemService(android.app.NotificationManager::class.java) ?: return true
+    return nm.canUseFullScreenIntent()
+}
+
+fun requestFullScreenIntent(context: Context) {
+    if (Build.VERSION.SDK_INT < 34) return
+    val intent = Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", Uri.parse("package:${context.packageName}"))
+    runCatching { context.startActivity(intent) }
+}
+
 fun requestIgnoreBatteryOptimizations(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
