@@ -59,7 +59,10 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:excludeFromRecents="false"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|screenLayout" />
 
         <service
             android:name=".call.CallService"

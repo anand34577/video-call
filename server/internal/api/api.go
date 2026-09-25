@@ -45,6 +45,7 @@ type API struct {
 	adminMu   sync.Mutex
 	startedAt time.Time
 	log       *slog.Logger
+	restart   func() // set by main; nil when the server can't restart itself
 }
 
 func New(cfg *config.Config, dbh *db.DB, hub PresenceProvider, oidcMgr *oidc.Manager, settingsStore *settings.Store, log *slog.Logger) *API {
@@ -191,6 +192,9 @@ func (a *API) Router() http.Handler {
 		r.Delete("/oidc/link", a.handleOIDCUnlink)
 		r.Put("/devices/keys", a.handleRegisterDeviceKey)
 		r.Get("/devices/keys", a.handleDeviceKeys)
+		r.Get("/users/me/key-backup", a.handleGetKeyBackup)
+		r.Put("/users/me/key-backup", a.handleSaveKeyBackup)
+		r.Delete("/users/me/key-backup", a.handleDeleteKeyBackup)
 
 		r.Get("/users", a.handleListUsers)
 		r.Group(func(r chi.Router) {
@@ -201,6 +205,12 @@ func (a *API) Router() http.Handler {
 			r.Post("/users/{id}/sign-out", a.handleSignOutUser)
 			r.Get("/admin/stats", a.handleAdminStats)
 			r.Get("/admin/audit", a.handleListAudit)
+			r.Get("/admin/backups", a.handleListBackups)
+			r.Post("/admin/backups", a.handleCreateSnapshot)
+			r.Get("/admin/backups/{name}", a.handleDownloadSnapshot)
+			r.Post("/admin/backups/{name}/restore", a.handleRestoreSnapshot)
+			r.Get("/admin/backup", a.handleDownloadFull)
+			r.Post("/admin/restore", a.handleRestoreUpload)
 			r.Delete("/users/{id}/oidc-link", a.handleAdminOIDCUnlink)
 			r.Get("/admin/settings", a.handleListSettings)
 			r.Put("/admin/settings/{key}", a.handleUpdateSetting)

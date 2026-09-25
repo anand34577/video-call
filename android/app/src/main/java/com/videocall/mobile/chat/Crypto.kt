@@ -256,10 +256,20 @@ object Crypto {
         if (encIv == null || encKeysJson == null) return null
         val entries = runCatching { json.decodeFromString<List<WrappedKeyEntry>>(encKeysJson) }.getOrNull() ?: return null
         val myDeviceId = Prefs.deviceId(context)
-        val mine = entries.firstOrNull { it.device_id == myDeviceId } ?: return null
-        val bundle = getOrCreateKeyPair(context)
+        // Sealed for this device, or else for the account's key backup (a
+        // message from before this device existed, readable after restoring).
+        val own = entries.firstOrNull { it.device_id == myDeviceId }
+        val mine: WrappedKeyEntry
+        val myPriv: PrivateKey
+        if (own != null) {
+            mine = own
+            myPriv = getOrCreateKeyPair(context).private
+        } else {
+            mine = entries.firstOrNull { it.device_id == BACKUP_DEVICE && it.user_id == currentUserId() } ?: return null
+            myPriv = backupPrivateKey(context) ?: return null
+        }
         val senderPub = publicKeyFromJwk(mine.sender_pub_jwk)
-        val wrapKey = deriveWrapKey(bundle.private, senderPub)
+        val wrapKey = deriveWrapKey(myPriv, senderPub)
         val unwrapCipher = Cipher.getInstance("AES/GCM/NoPadding")
         unwrapCipher.init(Cipher.DECRYPT_MODE, wrapKey, GCMParameterSpec(128, b64stdDecode(mine.wrap_iv)))
         val rawContentKey = unwrapCipher.doFinal(b64stdDecode(mine.wrapped_key))
@@ -271,4 +281,88 @@ object Crypto {
     }
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    // ---- account key backup ----
+    //
+    // Same scheme and format as the web app (web/src/lib/crypto.ts): an extra
+    // "backup" key pair whose public key is registered like another device of
+    // the user, so new messages are sealed for it too. Its private key is kept
+    // on the server encrypted with a password (PBKDF2-SHA256 + AES-GCM).
+
+    private const val BACKUP_DEVICE = "backup"
+    private const val PBKDF2_ITERATIONS = 310_000
+    private fun backupPrivPref(userId: Long) = "backup_priv:$userId"
+
+    private fun backupPrivateKey(context: Context): PrivateKey? {
+        val stored = prefs(context).getString(backupPrivPref(currentUserId()), null) ?: return null
+        return runCatching { KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(b64stdDecode(stored))) }.getOrNull()
+    }
+
+    /** Whether this device can already read messages sealed for the backup. */
+    fun hasBackupKey(context: Context): Boolean = prefs(context).contains(backupPrivPref(currentUserId()))
+
+    private fun passwordKey(password: String, salt: ByteArray, iterations: Int): SecretKeySpec {
+        val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val spec = javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, iterations, 256)
+        return SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+    }
+
+    private fun seal(pkcs8: ByteArray, password: String): JsonObject {
+        val random = java.security.SecureRandom()
+        val salt = ByteArray(16).also { random.nextBytes(it) }
+        val iv = ByteArray(12).also { random.nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, passwordKey(password, salt, PBKDF2_ITERATIONS), GCMParameterSpec(128, iv))
+        return JsonObject(mapOf(
+            "v" to JsonPrimitive(1),
+            "kdf" to JsonPrimitive("PBKDF2-SHA256"),
+            "iterations" to JsonPrimitive(PBKDF2_ITERATIONS),
+            "salt" to JsonPrimitive(b64std(salt)),
+            "iv" to JsonPrimitive(b64std(iv)),
+            "ciphertext" to JsonPrimitive(b64std(cipher.doFinal(pkcs8))),
+        ))
+    }
+
+    private fun storeBackupKey(context: Context, pkcs8: ByteArray) {
+        prefs(context).edit().putString(backupPrivPref(currentUserId()), b64std(pkcs8)).apply()
+        decryptCache.clear()
+    }
+
+    /** Turns on backup, or replaces it with a new key and password. */
+    suspend fun createKeyBackup(context: Context, password: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        val pair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec(CURVE)) }.generateKeyPair()
+        val jwk = publicKeyToJwk(pair.public as java.security.interfaces.ECPublicKey)
+        SessionManager.api.saveKeyBackup(seal(pair.private.encoded, password), jwk.toString())
+        storeBackupKey(context, pair.private.encoded)
+    }
+
+    /** Re-encrypts the existing backup key with a new password. */
+    suspend fun changeKeyBackupPassword(context: Context, password: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        val stored = prefs(context).getString(backupPrivPref(currentUserId()), null)
+            ?: throw IllegalStateException("Restore the backup on this device first")
+        val pub = SessionManager.api.deviceKeys(listOf(currentUserId())).firstOrNull { it.device_id == BACKUP_DEVICE }
+            ?: throw IllegalStateException("There is no backup to update")
+        SessionManager.api.saveKeyBackup(seal(b64stdDecode(stored), password), pub.public_key_jwk)
+    }
+
+    /** Unlocks the account's backup on this device with its password. */
+    suspend fun restoreKeyBackup(context: Context, password: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        val data = SessionManager.api.keyBackup().data ?: throw IllegalStateException("There is no backup for this account")
+        fun field(name: String) = (data[name] as? JsonPrimitive)?.content ?: throw IllegalStateException("The backup is damaged")
+        val iterations = field("iterations").toInt()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, passwordKey(password, b64stdDecode(field("salt")), iterations), GCMParameterSpec(128, b64stdDecode(field("iv"))))
+        val pkcs8 = try {
+            cipher.doFinal(b64stdDecode(field("ciphertext")))
+        } catch (e: javax.crypto.AEADBadTagException) {
+            throw IllegalArgumentException("That password doesn't match the backup")
+        }
+        KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8)) // must be a valid key
+        storeBackupKey(context, pkcs8)
+    }
+
+    suspend fun deleteKeyBackup(context: Context) {
+        SessionManager.api.deleteKeyBackup()
+        prefs(context).edit().remove(backupPrivPref(currentUserId())).apply()
+    }
 }

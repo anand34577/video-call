@@ -55,9 +55,8 @@ jobs:
             else
               cp "$bin" "$pkg/visioncall"
               if [[ "$plat" == linux-* ]]; then
-                cp ../scripts/install-linux.sh ../deploy/visioncall.service ../deploy/backup.sh \
-                  ../deploy/visioncall-backup.service ../deploy/visioncall-backup.timer "$pkg/"
-                chmod +x "$pkg/install-linux.sh" "$pkg/backup.sh" "$pkg/visioncall"
+                cp ../scripts/install-linux.sh ../deploy/visioncall.service "$pkg/"
+                chmod +x "$pkg/install-linux.sh" "$pkg/visioncall"
               fi
               tar -czf "$pkg.tar.gz" "$pkg"
             fi

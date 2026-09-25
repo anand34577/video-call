@@ -283,10 +283,17 @@ async function decryptNow(msg: { content: string; enc_iv?: string | null; enc_ke
     return null;
   }
   const myDeviceId = deviceID();
-  const mine = entries.find((e) => e.device_id === myDeviceId);
-  if (!mine) return null;
+  // Sealed for this device, or else for the account's key backup (a message
+  // from before this device existed, readable after restoring the backup).
+  let mine = entries.find((e) => e.device_id === myDeviceId);
+  let privateKey: CryptoKey | undefined;
+  if (!mine) {
+    mine = entries.find((e) => e.device_id === BACKUP_DEVICE_ID && e.user_id === currentUserID);
+    privateKey = mine ? await backupPrivateKey() : undefined;
+    if (!mine || !privateKey) return null;
+  }
   try {
-    const { privateKey } = await getDeviceKeyPair();
+    privateKey ??= (await getDeviceKeyPair()).privateKey;
     const wrapKey = await deriveWrapKey(privateKey, mine.sender_pub_jwk);
     const rawContentKey = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64decode(mine.wrap_iv) }, wrapKey, b64decode(mine.wrapped_key));
     const contentKey = await crypto.subtle.importKey("raw", rawContentKey, { name: "AES-GCM" }, false, ["decrypt"]);
@@ -295,4 +302,116 @@ async function decryptNow(msg: { content: string; enc_iv?: string | null; enc_ke
   } catch {
     return null;
   }
+}
+
+// ---- account key backup ----
+//
+// Turning on backup makes one extra "backup" key pair for the account. Its
+// public key is registered like another device of the user, so everyone
+// seals new messages for it too. Its private key is stored on the server,
+// encrypted with a password only the user knows (PBKDF2 + AES-GCM). On a new
+// device, entering that password unlocks every message sent since backup
+// was turned on. The Android app uses the same format.
+
+const BACKUP_DEVICE_ID = "backup";
+const PBKDF2_ITERATIONS = 310_000;
+const backupRecordKey = (userID: number) => `backup:${userID}`;
+
+interface KeyBackupData {
+  v: 1;
+  kdf: "PBKDF2-SHA256";
+  iterations: number;
+  salt: string;
+  iv: string;
+  ciphertext: string; // the backup private key, PKCS#8, AES-GCM encrypted
+}
+
+async function passwordKey(password: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function backupPrivateKey(): Promise<CryptoKey | undefined> {
+  if (currentUserID == null) return undefined;
+  return idbGet<CryptoKey>(STORE, backupRecordKey(currentUserID));
+}
+
+/** Whether this device can already read messages sealed for the backup. */
+export async function hasBackupKeyOnDevice(): Promise<boolean> {
+  if (!isCryptoSubtleAvailable()) return false;
+  return !!(await backupPrivateKey());
+}
+
+async function sealBackup(pkcs8: ArrayBuffer, password: string): Promise<KeyBackupData> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await passwordKey(password, salt, PBKDF2_ITERATIONS);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, pkcs8);
+  return {
+    v: 1,
+    kdf: "PBKDF2-SHA256",
+    iterations: PBKDF2_ITERATIONS,
+    salt: b64encode(salt.buffer as ArrayBuffer),
+    iv: b64encode(iv.buffer as ArrayBuffer),
+    ciphertext: b64encode(ciphertext),
+  };
+}
+
+async function storeBackupKey(pkcs8: ArrayBuffer) {
+  if (currentUserID == null) throw new Error("Not signed in");
+  // Kept extractable so the password can be changed later from this device.
+  const priv = await crypto.subtle.importKey("pkcs8", pkcs8, { name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  await idbSet(STORE, backupRecordKey(currentUserID), priv);
+  decryptCache.clear();
+}
+
+/** Turns on backup, or replaces it with a new key and password. */
+export async function createKeyBackup(password: string): Promise<void> {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"])) as CryptoKeyPair;
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const data = await sealBackup(pkcs8, password);
+  await api.saveKeyBackup(data, JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }));
+  await storeBackupKey(pkcs8);
+}
+
+/**
+ * Re-encrypts the existing backup key with a new password, keeping it valid
+ * for everything already sealed for it. Needs the key on this device.
+ */
+export async function changeKeyBackupPassword(password: string): Promise<void> {
+  const priv = await backupPrivateKey();
+  if (!priv) throw new Error("Restore the backup on this device first");
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", priv);
+  const status = await api.keyBackup();
+  const keys = await api.deviceKeys([currentUserID!]);
+  const pub = keys.find((k) => k.device_id === BACKUP_DEVICE_ID);
+  if (!status.exists || !pub) throw new Error("There is no backup to update");
+  await api.saveKeyBackup(await sealBackup(pkcs8, password), pub.public_key_jwk);
+}
+
+/** Unlocks the account's backup on this device with its password. */
+export async function restoreKeyBackup(password: string): Promise<void> {
+  const status = await api.keyBackup();
+  if (!status.exists || !status.data) throw new Error("There is no backup for this account");
+  const d = status.data as KeyBackupData;
+  const key = await passwordKey(password, b64decode(d.salt), d.iterations);
+  let pkcs8: ArrayBuffer;
+  try {
+    pkcs8 = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64decode(d.iv) as BufferSource }, key, b64decode(d.ciphertext) as BufferSource);
+  } catch {
+    throw new Error("That password doesn't match the backup");
+  }
+  await storeBackupKey(pkcs8);
+}
+
+export async function deleteKeyBackup(): Promise<void> {
+  await api.deleteKeyBackup();
+  if (currentUserID != null) await idbDelete(STORE, backupRecordKey(currentUserID));
 }

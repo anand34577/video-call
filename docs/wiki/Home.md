@@ -23,11 +23,12 @@ It ships as one small program. Install it on a machine in your office or home, a
 
 ## What you get
 
-- **Chat**: one-to-one and group conversations with read receipts, typing indicators, replies, reactions, edits, pinned and saved messages, search, and file and image sharing. Messages are end-to-end encrypted when you use the app over HTTPS.
-- **Calls**: one-to-one video calls that go straight between the two devices, and group calls for up to 8 people by default, with screen sharing, mute and camera controls, and host tools.
+- **Chat**: one-to-one and group conversations with read receipts, typing indicators, swipe to reply, reactions, edits, pinned and saved messages, search, and photo, video and file sharing with captions. Messages are end-to-end encrypted by default when you use the app over HTTPS.
+- **Calls**: one-to-one video calls that go straight between the two devices, and group calls for up to 8 people by default, with screen sharing, picture-in-picture, in-call chat, mute and camera controls, and host tools.
 - **Rooms**: named meeting rooms, optionally protected by a passcode or an approval step.
 - **Presence**: see who is online, away or in Do Not Disturb.
-- **Admin tools**: create and manage accounts, change server settings from the browser, and read the audit log.
+- **Admin tools**: create, suspend and remove accounts, change server settings from the browser, read the audit log, and back up or restore the whole server.
+- **Chat backup**: a password-protected backup of your encryption key, so a new phone or browser can read your encrypted messages.
 - **Works everywhere**: any modern browser on a computer or phone, installable as an app, plus a native Android app.
 
 ## For administrators and developers

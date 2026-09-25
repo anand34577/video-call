@@ -13,7 +13,7 @@ The installer:
 1. Downloads the latest release for your CPU and checks it against the published checksum.
 2. Creates a `visioncall` system user and installs everything to `/opt/visioncall`.
 3. Starts the `visioncall` service and enables it at boot.
-4. Turns on a daily database backup at 03:00.
+4. Makes a daily database backup, managed from **Admin > Backups** in the app.
 5. Opens ports 8443/tcp, 8080/tcp and 7882/udp if `ufw` or `firewalld` is active.
 6. Prints the address to open and the first admin password.
 
@@ -63,8 +63,8 @@ Run the same one-line command again. It replaces the program and keeps your sett
 ## Uninstall
 
 ```bash
-sudo systemctl disable --now visioncall visioncall-backup.timer
-sudo rm -f /etc/systemd/system/visioncall.service /etc/systemd/system/visioncall-backup.service /etc/systemd/system/visioncall-backup.timer
+sudo systemctl disable --now visioncall
+sudo rm -f /etc/systemd/system/visioncall.service
 sudo systemctl daemon-reload
 sudo rm -rf /opt/visioncall        # deletes all data, back it up first if you need it
 sudo userdel visioncall

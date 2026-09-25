@@ -129,6 +129,10 @@ class Api(private val context: Context, val baseUrl: String) {
     // ---- device keys (E2E chat encryption) ----
     suspend fun registerDeviceKey(deviceId: String, publicKeyJwk: String): ApiOk =
         exec("/api/devices/keys", "PUT", jsonBody(mapOf("device_id" to deviceId, "public_key_jwk" to publicKeyJwk)))
+    suspend fun keyBackup(): KeyBackupStatus = exec("/api/users/me/key-backup")
+    suspend fun saveKeyBackup(data: kotlinx.serialization.json.JsonObject, publicKeyJwk: String): ApiOk =
+        exec("/api/users/me/key-backup", "PUT", jsonBody(mapOf("data" to data, "public_key_jwk" to publicKeyJwk)))
+    suspend fun deleteKeyBackup(): ApiOk = exec("/api/users/me/key-backup", "DELETE")
     suspend fun deviceKeys(userIds: List<Long>): List<DeviceKey> =
         exec<List<DeviceKey>?>("/api/devices/keys?user_ids=${userIds.joinToString(",")}") ?: emptyList()
 
@@ -198,9 +202,12 @@ class Api(private val context: Context, val baseUrl: String) {
     suspend fun iceServers(): IceServersResponse = exec("/api/ice")
 
     // ---- files ----
-    suspend fun uploadFile(file: File, mime: String): UploadResult = withContext(Dispatchers.IO) {
+    /** Uploads a file; [onProgress] gets 0..1 as the bytes go out. */
+    suspend fun uploadFile(file: File, mime: String, onProgress: ((Float) -> Unit)? = null): UploadResult = withContext(Dispatchers.IO) {
+        val fileBody = if (onProgress == null) okhttp3.RequestBody.create(mime.toMediaType(), file)
+        else ProgressFileBody(file, mime.toMediaType(), onProgress)
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, okhttp3.RequestBody.create(mime.toMediaType(), file))
+            .addFormDataPart("file", file.name, fileBody)
             .build()
         val req = Request.Builder().url("$baseUrl/api/files").post(body)
         csrfToken()?.let { req.addHeader("X-CSRF-Token", it) }
@@ -244,4 +251,28 @@ class Api(private val context: Context, val baseUrl: String) {
     suspend fun resetSetting(key: String): ApiOk = exec("/api/admin/settings/${java.net.URLEncoder.encode(key, "UTF-8")}", "DELETE")
     suspend fun auditLog(before: Long? = null): List<AuditEntry> =
         exec<List<AuditEntry>?>("/api/admin/audit" + (before?.let { "?before=$it" } ?: "")) ?: emptyList()
+}
+
+/** A file request body that reports how much has been sent. */
+private class ProgressFileBody(
+    private val file: File,
+    private val type: okhttp3.MediaType,
+    private val onProgress: (Float) -> Unit,
+) : okhttp3.RequestBody() {
+    override fun contentType() = type
+    override fun contentLength() = file.length()
+    override fun writeTo(sink: okio.BufferedSink) {
+        val total = contentLength().coerceAtLeast(1)
+        var sent = 0L
+        file.inputStream().use { input ->
+            val buf = ByteArray(16 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                sink.write(buf, 0, n)
+                sent += n
+                onProgress((sent.toFloat() / total).coerceAtMost(1f))
+            }
+        }
+    }
 }

@@ -22,9 +22,6 @@ pick() { for f in "$@"; do [ -f "$f" ] && { echo "$f"; return; }; done; echo "er
 bin="$(pick "${1:-$here/visioncall}")"
 unit="$(pick "$here/visioncall.service" "$here/../deploy/visioncall.service")"
 envex="$(pick "$here/.env.example" "$here/../.env.example")"
-backup="$(pick "$here/backup.sh" "$here/../deploy/backup.sh")"
-backup_svc="$(pick "$here/visioncall-backup.service" "$here/../deploy/visioncall-backup.service")"
-backup_timer="$(pick "$here/visioncall-backup.timer" "$here/../deploy/visioncall-backup.timer")"
 
 dir=/opt/visioncall
 id visioncall >/dev/null 2>&1 || useradd --system --home-dir "$dir" --no-create-home --shell /usr/sbin/nologin visioncall
@@ -48,12 +45,15 @@ chown root:visioncall "$dir/.env"
 chown -R visioncall:visioncall "$dir/data"
 
 install -m 0644 "$unit" /etc/systemd/system/visioncall.service
-# Daily database backup at 03:00, kept for 14 days.
-install -D -m 0755 "$backup" "$dir/deploy/backup.sh"
-install -m 0644 "$backup_svc" "$backup_timer" /etc/systemd/system/
+# The server now makes its own daily backups (Admin > Backups), so retire
+# the separate backup timer earlier versions installed.
+if [ -f /etc/systemd/system/visioncall-backup.timer ]; then
+  systemctl disable --now visioncall-backup.timer 2>/dev/null || true
+  rm -f /etc/systemd/system/visioncall-backup.timer /etc/systemd/system/visioncall-backup.service "$dir/deploy/backup.sh"
+fi
 systemctl daemon-reload
 started="$(date '+%Y-%m-%d %H:%M:%S')"
-systemctl enable --now visioncall visioncall-backup.timer
+systemctl enable --now visioncall
 
 # Open the ports if a host firewall is running.
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
@@ -86,6 +86,6 @@ else
 fi
 echo "  Settings:  $dir/.env, then: sudo systemctl restart visioncall"
 echo "  Logs:      journalctl -u visioncall -f"
-echo "  Backups:   $dir/data/backups (daily at 03:00)"
-echo "  Uninstall: sudo systemctl disable --now visioncall visioncall-backup.timer"
-echo "             sudo rm -rf $dir /etc/systemd/system/visioncall*.service /etc/systemd/system/visioncall-backup.timer"
+echo "  Backups:   Admin > Backups in the app (daily copies in $dir/data/backups)"
+echo "  Uninstall: sudo systemctl disable --now visioncall"
+echo "             sudo rm -rf $dir /etc/systemd/system/visioncall.service"

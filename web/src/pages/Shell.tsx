@@ -22,6 +22,7 @@ import { usePresence } from "../store/presence";
 import { ws } from "../lib/ws";
 import { getNotificationPermissionStatus, notificationsSupported, requestNotificationPermission } from "../lib/media";
 import { toast } from "../store/toast";
+import { KeyBackupRestorePrompt } from "../components/KeyBackup";
 import { Avatar, PresenceDot, Menu, MenuItem } from "../components/ui";
 import { THEMES, savePreferencesToDb, type ThemeId } from "../lib/theme";
 import Chats from "./Chats";
@@ -183,6 +184,7 @@ export default function Shell() {
 
   return (
     <div className="flex flex-col h-full app-shell text-ink">
+      <KeyBackupRestorePrompt userID={me.id} />
       {askNotify && (
         <div className="bg-brand/10 border-b border-brand/20 text-ink text-xs px-4 py-2 flex items-center justify-center gap-3 font-medium shrink-0 z-50 animate-fade-in">
           <Bell className="h-3.5 w-3.5 text-brand" />

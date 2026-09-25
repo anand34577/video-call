@@ -72,7 +72,9 @@ object ChatRepository {
 
     private var activeConvo: Convo? = null
 
-    private fun e2ePrefs(context: Context) = context.getSharedPreferences("vc_e2e_flags", Context.MODE_PRIVATE)
+    // "v2": earlier versions stored a guess (copied from the last message) for
+    // every chat opened, which would now read as a deliberate "off".
+    private fun e2ePrefs(context: Context) = context.getSharedPreferences("vc_e2e_flags_v2", Context.MODE_PRIVATE)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -110,8 +112,9 @@ object ChatRepository {
     private fun loadEncryptedFlag(convo: Convo) {
         if (_encryptedConvos.value.containsKey(convo.key)) return
         if (!::appContext.isInitialized) return
+        // Chats are end-to-end encrypted unless someone turned it off for this chat.
         val stored = e2ePrefs(appContext).contains(convo.key)
-        val value = if (stored) e2ePrefs(appContext).getBoolean(convo.key, false) else false
+        val value = if (stored) e2ePrefs(appContext).getBoolean(convo.key, true) else true
         _encryptedConvos.value = _encryptedConvos.value.toMutableMap().apply { put(convo.key, value) }
     }
 
@@ -164,7 +167,12 @@ object ChatRepository {
             decryptPending(convo, listOf(msg))
             if (activeConvo != convo) {
                 _unread.value = _unread.value.toMutableMap().apply { put(convo.key, (get(convo.key) ?: 0) + 1) }
-                if (::appContext.isInitialized) ChatNotifier.notifyNewMessage(appContext, convo, msg, me, _groups.value)
+                // On the call screen for this chat, the call shows its own
+                // banner and badge instead of a notification on top of it.
+                val call = com.videocall.mobile.call.CallRepository.state.value
+                val inThisCall = com.videocall.mobile.App.isInForeground && call.status == com.videocall.mobile.call.CallStatus.ACTIVE &&
+                    ((convo is Convo.Dm && call.peer?.id == convo.peerId) || (convo is Convo.GroupChat && call.group?.id == convo.groupId))
+                if (::appContext.isInitialized && !inThisCall) ChatNotifier.notifyNewMessage(appContext, convo, msg, me, _groups.value)
             } else {
                 markRead(convo)
             }
@@ -286,8 +294,6 @@ object ChatRepository {
         val list = fetchPage(convo, null) ?: return
         merge(convo, list)
         _hasMore.value = _hasMore.value + (convo.key to (list.size >= 50))
-        // default the toggle from whether the most recent message was encrypted, same as web
-        if (!e2ePrefsHas(convo)) list.lastOrNull()?.let { setEncrypted(convo, it.is_encrypted) }
         decryptPending(convo, list)
     }
 
@@ -321,6 +327,20 @@ object ChatRepository {
     }
 
     private fun e2ePrefsHas(convo: Convo): Boolean = ::appContext.isInitialized && e2ePrefs(appContext).contains(convo.key)
+
+    /** Tries every encrypted message again, e.g. after restoring the key backup. */
+    fun redecryptAll() {
+        val cleared = _messages.value.mapValues { (_, list) -> list.map { if (it.is_encrypted) it.copy(decryptedContent = null) else it } }
+        _messages.value = cleared
+        cleared.forEach { (key, list) ->
+            val convo = when {
+                key.startsWith("dm:") -> key.removePrefix("dm:").toLongOrNull()?.let { Convo.Dm(it) }
+                key.startsWith("g:") -> key.removePrefix("g:").toLongOrNull()?.let { Convo.GroupChat(it) }
+                else -> null
+            }
+            if (convo != null) decryptPending(convo, list)
+        }
+    }
 
     private fun decryptPending(convo: Convo, msgs: List<Message>) {
         val encrypted = msgs.filter { it.is_encrypted && it.decryptedContent == null }
@@ -376,6 +396,26 @@ object ChatRepository {
                 // Re-checked every send (like web): a recipient with no device
                 // key would otherwise be silently left out of the message.
                 val missing = Crypto.usersMissingKeys(recipientIds.filter { it != me.id }.distinct())
+                // Someone here has never signed in on any device, so there's no
+                // key to encrypt for. With encryption on only by default, send it
+                // unencrypted and say so; if it was turned on by hand, don't.
+                if (missing.isNotEmpty() && !e2ePrefsHas(convo)) {
+                    _sendError.value = if (missing.size == 1) "Sent without end-to-end encryption: the other person hasn't signed in on any device yet"
+                        else "Sent without end-to-end encryption: ${missing.size} people haven't signed in on any device yet"
+                    val ok = SessionManager.ws.send("message:send", mapOf(
+                        "client_id" to clientId,
+                        "recipient_id" to (convo as? Convo.Dm)?.peerId,
+                        "group_id" to (convo as? Convo.GroupChat)?.groupId,
+                        "file_id" to fileId,
+                        "reply_to_id" to replyToId,
+                        "content" to text,
+                    ))
+                    if (!ok) {
+                        pendingAcks.remove(clientId)?.third?.cancel()
+                        markFailed(convo, optimistic.id)
+                    }
+                    return@launch
+                }
                 if (missing.isNotEmpty()) {
                     pendingAcks.remove(clientId)?.third?.cancel()
                     markFailed(convo, optimistic.id)

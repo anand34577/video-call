@@ -28,6 +28,7 @@ import (
 
 	"visioncall/internal/api"
 	"visioncall/internal/auth"
+	"visioncall/internal/backup"
 	"visioncall/internal/config"
 	"visioncall/internal/db"
 	"visioncall/internal/logger"
@@ -92,6 +93,17 @@ func main() {
 	}
 
 	renameLegacyDB(cfg.DataDir, lg)
+	// A restore staged from the admin screen is applied here, before the
+	// database is opened.
+	restored, err := backup.ApplyPending(cfg.DataDir)
+	if err != nil {
+		lg.Error("could not apply the restored backup", "err", err)
+		os.Exit(1)
+	}
+	if restored {
+		lg.Info("restored a backup; the previous data was kept in a pre-restore folder", "data_dir", cfg.DataDir)
+		cfg.JWTSecret = config.Load().JWTSecret // the backup brought its own session key
+	}
 	driver, dsn, err := cfg.DBDriverAndDSN(filepath.Join(cfg.DataDir, "visioncall.db"))
 	if err != nil {
 		lg.Error("invalid DATABASE_URL", "err", err)
@@ -103,6 +115,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer dbh.Close()
+	if restored {
+		if err := dbh.RebaseFilePaths(filepath.Join(cfg.DataDir, "files")); err != nil {
+			lg.Error("could not update file locations after restoring", "err", err)
+		}
+	}
 
 	if backupPath != "" {
 		if err := dbh.Backup(backupPath); err != nil {
@@ -157,6 +174,16 @@ func main() {
 	cleanupStop := make(chan struct{})
 	defer close(cleanupStop)
 	go runPeriodicCleanup(dbh, apiHandler, lg, cleanupStop)
+	if dbh.Dialect() == db.DialectSQLite {
+		go runDailySnapshots(dbh, cfg.DataDir, lg, cleanupStop)
+	}
+
+	// After a restore is staged the server restarts itself: it exits with a
+	// non-zero code so Docker, systemd and the Windows service manager start
+	// it again, and the restore is applied on the way up.
+	restartCh := make(chan struct{})
+	var restartOnce sync.Once
+	apiHandler.SetRestart(func() { restartOnce.Do(func() { close(restartCh) }) })
 
 	bootstrapAdmin(cfg, dbh, lg)
 
@@ -274,7 +301,12 @@ func main() {
 
 	ctx, stop := shutdownContext()
 	defer stop()
-	<-ctx.Done()
+	restarting := false
+	select {
+	case <-ctx.Done():
+	case <-restartCh:
+		restarting = true
+	}
 
 	lg.Info("received shutdown signal; draining connections")
 	hub.Close()
@@ -293,6 +325,39 @@ func main() {
 		lg.Error("graceful shutdown error", "err", err)
 	}
 	lg.Info("server stopped")
+	if restarting {
+		lg.Info("restarting to apply the restored backup")
+		dbh.Close()
+		os.Exit(3)
+	}
+}
+
+// runDailySnapshots keeps a daily copy of the database in DATA_DIR/backups
+// (the newest 7), shown and restorable in Admin > Backups.
+func runDailySnapshots(dbh *db.DB, dataDir string, lg *slog.Logger, stop <-chan struct{}) {
+	take := func() {
+		if s, err := backup.TakeSnapshot(dbh, dataDir); err != nil {
+			lg.Error("daily backup failed", "err", err)
+		} else {
+			lg.Info("daily backup written", "file", s.Name)
+		}
+	}
+	select {
+	case <-time.After(2 * time.Minute):
+		take()
+	case <-stop:
+		return
+	}
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			take()
+		case <-stop:
+			return
+		}
+	}
 }
 
 // runPeriodicCleanup re-runs the same expiry sweeps main() does once at

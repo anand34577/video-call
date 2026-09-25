@@ -178,6 +178,14 @@ data class AdminStats(
 @Serializable
 data class ApiOk(val ok: Boolean = false)
 
+/** The account's password-protected encryption key backup (see Crypto). */
+@Serializable
+data class KeyBackupStatus(
+    val exists: Boolean = false,
+    val data: kotlinx.serialization.json.JsonObject? = null,
+    val updated_at: String? = null,
+)
+
 @Serializable
 data class UploadResult(val id: Long, val name: String, val mime: String, val size: Long)
 

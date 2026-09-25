@@ -32,6 +32,29 @@ import com.videocall.mobile.MainActivity
 class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // Reconnect as soon as the phone changes networks (Wi-Fi to mobile data,
+    // back in range, VPN up) instead of waiting for the old socket to time out.
+    private var lastNetwork: android.net.Network? = null
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) {
+            val changed = lastNetwork != null && lastNetwork != network
+            lastNetwork = network
+            if (SessionManager.hasServer) SessionManager.ws.reconnectNow(force = changed)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        runCatching {
+            getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
+        }
+    }
+
+    override fun onDestroy() {
+        runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
+        super.onDestroy()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

@@ -1,6 +1,7 @@
 import type {
   AdminStats,
   AuditEntry,
+  BackupSnapshot,
   Call,
   DeviceKey,
   Group,
@@ -47,6 +48,38 @@ let onUnauthorized: (() => void) | null = null;
 // clean redirect to Login the moment the server says the session is gone.
 export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
+}
+
+/**
+ * POSTs a multipart form and reports upload progress (0..1). fetch() can't
+ * report upload progress, so this uses XMLHttpRequest.
+ */
+export function uploadWithProgress<T>(path: string, form: FormData, onProgress?: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    const token = csrfToken();
+    if (token) xhr.setRequestHeader("X-CSRF-Token", token);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let body: any = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        /* not json */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as T);
+      else {
+        if (xhr.status === 401) onUnauthorized?.();
+        reject(new Error(body?.error ?? xhr.statusText ?? "Upload failed"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed. Check your connection."));
+    xhr.send(form);
+  });
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -212,13 +245,23 @@ export const api = {
   getRoom: (id: string) => req<PrivateRoom>(`/api/rooms/${encodeURIComponent(id)}`),
   deleteRoom: (id: string) => req<{ ok: boolean }>(`/api/rooms/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  uploadFile: (file: File) => {
+  uploadFile: (file: File, onProgress?: (fraction: number) => void) => {
     const form = new FormData();
     form.append("file", file);
-    return req<{ id: number; name: string; mime: string; size: number }>(
-      "/api/files",
-      { method: "POST", body: form },
-    );
+    return uploadWithProgress<{ id: number; name: string; mime: string; size: number }>("/api/files", form, onProgress);
+  },
+  keyBackup: () => req<{ exists: boolean; data?: unknown; updated_at?: string }>("/api/users/me/key-backup"),
+  saveKeyBackup: (data: unknown, publicKeyJwk: string) =>
+    req<{ ok: boolean }>("/api/users/me/key-backup", { method: "PUT", body: JSON.stringify({ data, public_key_jwk: publicKeyJwk }) }),
+  deleteKeyBackup: () => req<{ ok: boolean }>("/api/users/me/key-backup", { method: "DELETE" }),
+  listBackups: () => req<{ supported: boolean; reason?: string; snapshots: BackupSnapshot[] }>("/api/admin/backups"),
+  createBackup: () => req<BackupSnapshot>("/api/admin/backups", { method: "POST" }),
+  restoreSnapshot: (name: string) =>
+    req<{ ok: boolean; restarting: boolean }>(`/api/admin/backups/${encodeURIComponent(name)}/restore`, { method: "POST" }),
+  restoreUpload: (file: File, onProgress?: (fraction: number) => void) => {
+    const form = new FormData();
+    form.append("file", file);
+    return uploadWithProgress<{ ok: boolean; restarting: boolean }>("/api/admin/restore", form, onProgress);
   },
 
   iceServers: () => req<{ iceServers: IceServer[] }>("/api/ice"),

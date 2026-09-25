@@ -1,67 +1,62 @@
 # Backups and Upgrades
 
-## What to back up
+Vision Call has two kinds of backup:
 
-Everything lives in the data folder:
+| | What it protects | Who manages it |
+|---|---|---|
+| **Server backup** | The whole server: accounts, messages, groups, rooms, call history, settings and uploaded files | Admins, in **Admin > Backups** |
+| **Chat backup** | Your ability to read your own end-to-end encrypted messages on a new phone or browser | Each person, in **Settings > Chat backup** |
 
-| Item | What it is |
-|---|---|
-| `visioncall.db` | The database: accounts, messages, groups, rooms, call history, settings |
-| `files/` | Uploaded files and images |
-| `jwt_secret` | The key that signs logins. Without it, everyone has to sign in again. |
-| `cert.pem`, `key.pem` | The automatic certificate. Without them, devices that trusted it will warn again. |
+## Server backup
 
-The data folder is `/opt/visioncall/data` on Linux, `C:\ProgramData\VisionCall\data` on Windows, and the `visioncall-data` volume with Docker.
+Open **Admin > Backups**. Everything below works the same with Docker, on Linux and on Windows. It covers servers using the built-in database; with Postgres or MySQL, back up with `pg_dump` or `mysqldump` plus the `files` folder.
 
-## Back up the database safely
+### Automatic daily backups
 
-Copying `visioncall.db` while the server is running can give you a damaged copy. Use the built-in backup command instead. It makes a consistent copy while the server keeps running.
+The server copies its database every day, a couple of minutes after it starts and then every 24 hours. The newest 7 copies are kept in the `backups` folder inside the data folder and listed on the Backups screen, where you can download or restore any of them. **Back up now** makes one straight away.
 
-**Linux** (the installer already runs this daily at 03:00, keeping 14 days in `/opt/visioncall/data/backups`):
+These daily copies cover the database only. For the uploaded files too, use a full backup.
+
+### Full backup
+
+**Download** saves one `.zip` with everything: the database, all uploaded files and the key that signs logins. Keep it somewhere other than the server itself.
+
+### Restore
+
+On the Backups screen, choose **Restore** next to a daily backup, or **Choose file** to upload a full backup (`.zip`) or a database backup (`.db`). Then:
+
+1. The server checks the backup. It must open cleanly and contain at least one active admin, so you can't lock yourself out.
+2. The current data is moved aside to a `pre-restore-<date>` folder inside the data folder. Nothing is deleted.
+3. The server restarts with the restored data, and the page reloads once it's back. Everyone signs in again.
+
+The server restarts itself by exiting, and Docker, the Linux service and the Windows service all start it again automatically. If you run the program by hand, start it again yourself.
+
+A backup from one install restores onto another, for example from Docker onto a Linux server. File locations are adjusted automatically.
+
+### From the command line
+
+A consistent copy of the database can also be made while the server is running:
 
 ```bash
-sudo systemctl start visioncall-backup     # run a backup now
-ls /opt/visioncall/data/backups
-```
-
-**Docker:**
-
-```bash
+# Docker
 docker exec visioncall visioncall-server -backup /data/backup.db
-docker cp visioncall:/data/backup.db ./visioncall-backup.db
-docker cp visioncall:/data/files ./visioncall-files
+# Linux
+cd /opt/visioncall && sudo -u visioncall ./visioncall -backup data/backup.db
 ```
 
-**Windows** (PowerShell as Administrator):
+## Chat backup
 
-```powershell
-cd C:\ProgramData\VisionCall
-.\visioncall.exe -backup data\backup.db
-```
+Encrypted messages are sealed separately for each of the recipient's devices, so a brand-new phone or browser can't read messages sent before it existed. Chat backup fixes that:
 
-Then copy `backup.db` and the `files` folder somewhere safe. With Task Scheduler you can run the same command daily.
+1. In **Settings > Chat backup**, choose **Turn on backup** and pick a backup password.
+2. From then on, every encrypted message sent to you is also sealed for your backup.
+3. When you sign in on a new device, Vision Call notices the backup and asks for the password. Enter it and your backed-up messages become readable there.
 
-**Postgres or MySQL:** if you set `DATABASE_URL`, use `pg_dump` or `mysqldump` as usual. The `-backup` command only covers the built-in SQLite database. Back up the `files/` folder either way.
-
-## Restore
-
-1. Stop Vision Call.
-2. Replace `visioncall.db` in the data folder with your backup copy (named `visioncall.db`), and put back `files/` if needed.
-3. Delete any `visioncall.db-wal` and `visioncall.db-shm` files next to it.
-4. Start Vision Call.
-
-With Docker, stop the container, copy the files into the volume with a temporary container, then start it again:
-
-```bash
-docker stop visioncall
-docker run --rm -v visioncall-data:/data -v "$PWD":/backup alpine \
-  sh -c "cp /backup/visioncall-backup.db /data/visioncall.db && rm -f /data/visioncall.db-wal /data/visioncall.db-shm && chown 10001:10001 /data/visioncall.db"
-docker start visioncall
-```
+The backup key is stored on your server, locked with your password. Neither the server nor your administrator can read it or recover the password. Messages from before you turned the backup on aren't covered. The same backup works in the browser and in the Android app.
 
 ## Upgrade
 
-Upgrades keep your data and settings. The database is updated automatically on the first start of the new version. Taking a backup first is still a good habit.
+Upgrades keep your data and settings. The database is updated automatically on the first start of the new version. Downloading a full backup first is a good habit.
 
 | Installed with | Upgrade with |
 |---|---|

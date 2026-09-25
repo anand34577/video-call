@@ -29,6 +29,14 @@ class WsClient(private val api: Api, private val deviceId: String) {
     var replaced = false
         private set
 
+    /**
+     * Called with true while a reconnect is pending and false once connected
+     * (or given up). SessionManager holds a CPU wake lock meanwhile: with the
+     * screen off the CPU sleeps and the retry timer would otherwise not fire
+     * until the phone wakes up, leaving the user offline.
+     */
+    var onReconnecting: ((Boolean) -> Unit)? = null
+
     val connected: Boolean get() = ws != null
 
     fun connect() {
@@ -41,6 +49,7 @@ class WsClient(private val api: Api, private val deviceId: String) {
         val socket = api.client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 backoffMs = 1000
+                onReconnecting?.invoke(false)
                 emit("ws:open", JsonNull)
             }
 
@@ -75,6 +84,7 @@ class WsClient(private val api: Api, private val deviceId: String) {
 
     private fun scheduleReconnect() {
         if (reconnectRunnable != null) return
+        onReconnecting?.invoke(true)
         val r = Runnable {
             reconnectRunnable = null
             connect()
@@ -84,7 +94,27 @@ class WsClient(private val api: Api, private val deviceId: String) {
         backoffMs = (backoffMs * 2).coerceAtMost(15000)
     }
 
+    /**
+     * Reconnects right away, for example when the phone switches networks.
+     * With [force] an existing socket is dropped first: after a network
+     * change it is usually dead even though nothing has noticed yet.
+     */
+    fun reconnectNow(force: Boolean) {
+        if (!wantConnected) return
+        main.post {
+            reconnectRunnable?.let { main.removeCallbacks(it) }
+            reconnectRunnable = null
+            backoffMs = 1000
+            if (force) {
+                ws?.cancel()
+                ws = null
+            }
+            if (ws == null) connect()
+        }
+    }
+
     fun disconnect() {
+        onReconnecting?.invoke(false)
         wantConnected = false
         reconnectRunnable?.let { main.removeCallbacks(it) }
         reconnectRunnable = null

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { KeyBackupSection } from "../components/KeyBackup";
 import { Camera, Volume2, Eye, EyeOff, CheckCircle2, XCircle, Trash2, Loader2, Palette, Check } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../store/auth";
@@ -721,6 +722,8 @@ export default function Settings() {
             </Alert>
           )}
         </section>
+
+        <KeyBackupSection />
 
         {/* Change Password */}
         <section className="rounded-xl border border-line bg-surface p-5 space-y-5 shadow-sm text-ink">

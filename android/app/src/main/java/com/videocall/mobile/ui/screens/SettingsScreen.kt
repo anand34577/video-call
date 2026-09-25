@@ -255,6 +255,8 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(Modifier.padding(start = 64.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 }
+                KeyBackupSettings(showMessage = { msg -> scope.launch { snackbar.showSnackbar(msg) } })
+                HorizontalDivider(Modifier.padding(start = 64.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 SettingsRow(Icons.Default.Dns, "Server", Prefs.serverUrl(context) ?: "—", tint = MaterialTheme.colorScheme.secondary)
             }
 

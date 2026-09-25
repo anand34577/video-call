@@ -14,6 +14,7 @@ import {
   Minimize2,
   Maximize2,
   MessageSquare,
+  PictureInPicture2,
   X,
   Hand,
   Circle,
@@ -65,6 +66,7 @@ function Video({
       autoPlay
       playsInline
       muted={muted}
+      data-call-video={muted ? "local" : "remote"}
       className={`${className ?? ""} ${mirror ? "-scale-x-100" : ""}`}
     />
   );
@@ -676,6 +678,59 @@ function ControlsBar() {
     if (recordError) setToast(recordError);
   }, [recordError, setToast]);
 
+  // Keep the screen awake for the whole call; the browser drops the lock
+  // whenever the tab is hidden, so take it again when it comes back.
+  useEffect(() => {
+    let lock: { release: () => Promise<void> } | null = null;
+    const take = async () => {
+      try {
+        if (document.visibilityState === "visible" && "wakeLock" in navigator) {
+          lock = await (navigator as any).wakeLock.request("screen");
+        }
+      } catch {
+        /* not supported or not allowed (needs HTTPS) */
+      }
+    };
+    void take();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void take();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      void lock?.release().catch(() => {});
+    };
+  }, []);
+
+  // Messages that arrive in this call's chat while the chat panel is closed.
+  const callConvoKey = useCalls((s) => (s.peer ? `dm:${s.peer.id}` : s.group ? `g:${s.group.id}` : null));
+  const chatUnread = useChats((s) => (callConvoKey ? s.unread[callConvoKey] ?? 0 : 0));
+  useEffect(() => {
+    // While the call covers the screen, the chat underneath isn't really
+    // being read, so new messages should count as unread and notify.
+    useChats.setState({ callCovering: !inCallChat });
+    return () => useChats.setState({ callCovering: false });
+  }, [inCallChat]);
+
+  const pipSupported = typeof document !== "undefined" && "pictureInPictureEnabled" in document && (document as any).pictureInPictureEnabled;
+  const togglePip = async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      const videos = Array.from(document.querySelectorAll<HTMLVideoElement>('video[data-call-video="remote"]'));
+      const target = videos.find((v) => v.videoWidth > 0) ?? videos[0];
+      if (!target) {
+        setToast("There's no video to pop out yet");
+        return;
+      }
+      await target.requestPictureInPicture();
+    } catch {
+      setToast("Couldn't open picture-in-picture");
+    }
+  };
+
   // Keyboard shortcuts: M mic, V camera, L leave, E chat. Ignored while typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -725,6 +780,15 @@ function ControlsBar() {
 
   return (
     <>
+      {sharing && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 rounded-full bg-emerald-600/95 text-white text-xs font-medium pl-3.5 pr-1.5 py-1.5 shadow-xl animate-modal-in" role="status">
+          <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
+          You're sharing your screen
+          <button onClick={() => void toggleScreen()} className="rounded-full bg-white/20 hover:bg-white/30 px-3 py-1 font-semibold cursor-pointer">
+            Stop
+          </button>
+        </div>
+      )}
       {toast && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-zinc-900/90 text-white text-sm px-4 py-2 rounded-full z-20 max-w-[90%] text-center border border-zinc-700/50 shadow-xl backdrop-blur-md animate-modal-in" role="status">
           {toast}
@@ -797,8 +861,20 @@ function ControlsBar() {
             pressed={inCallChat}
             onClick={() => { setInCallChat(!inCallChat); if (!inCallChat) setShowParticipants(false); }}
           >
-            <MessageSquare className="h-5 w-5" />
+            <span className="relative">
+              <MessageSquare className="h-5 w-5" />
+              {chatUnread > 0 && !inCallChat && (
+                <span className="absolute -top-2 -right-2.5 min-w-4 h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-4 text-center animate-modal-in">
+                  {chatUnread > 9 ? "9+" : chatUnread}
+                </span>
+              )}
+            </span>
           </DockBtn>
+          {pipSupported && (
+            <DockBtn label="Pop out" title="Keep the video in a small floating window" ariaLabel="Picture in picture" tone="idle" pressed={false} onClick={() => void togglePip()}>
+              <PictureInPicture2 className="h-5 w-5" />
+            </DockBtn>
+          )}
           <div className="relative shrink-0">
             <button
               onClick={() => setShowDevices((v) => !v)}

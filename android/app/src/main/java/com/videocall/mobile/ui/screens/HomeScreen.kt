@@ -49,6 +49,9 @@ fun HomeScreen(
     val unread by ChatRepository.unread.collectAsState()
     val totalUnread = unread.values.sum()
 
+    KeyBackupRestorePrompt()
+    StayReachablePrompt()
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {

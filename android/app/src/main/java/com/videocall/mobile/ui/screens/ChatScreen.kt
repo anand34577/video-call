@@ -152,20 +152,59 @@ fun ChatScreen(convo: Convo, onBack: () -> Unit, onOpenPinned: () -> Unit = {}, 
         },
     )
 
-    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    // Attachments: pick from the gallery, take a photo or choose documents,
+    // then review them (with a caption) before anything is uploaded.
+    var showAttachSheet by remember { mutableStateOf(false) }
+    var staged by remember { mutableStateOf<List<StagedFile>>(emptyList()) }
+    var sendProgress by remember { mutableStateOf<Float?>(null) }
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val stage: (List<android.net.Uri>) -> Unit = { uris -> if (uris.isNotEmpty()) staged = staged + uris.map { stagedFileOf(context, it) } }
+
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { stage(it) }
+    val pickDocs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { stage(it) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val uri = cameraUri
+        if (ok && uri != null) stage(listOf(uri))
+    }
+    val launchCamera: () -> Unit = {
+        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+        val photo = File(dir, "photo_${System.currentTimeMillis()}.jpg")
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo)
+        cameraUri = uri
+        runCatching { takePhoto.launch(uri) }.onFailure { scope.launch { snackbar.showSnackbar("No camera app available") } }
+    }
+    // The app declares the camera permission, so Android requires it to be
+    // granted even to hand the photo off to the camera app.
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchCamera() else scope.launch { snackbar.showSnackbar("Camera permission is needed to take a photo") }
+    }
+    val openCamera: () -> Unit = {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) launchCamera()
+        else cameraPermission.launch(android.Manifest.permission.CAMERA)
+    }
+
+    // Uploads one at a time (parallel uploads race the per-user storage
+    // quota). The caption goes with the first file.
+    val sendStaged: (String) -> Unit = { caption ->
+        val files = staged
+        val reply = replyTo
         scope.launch {
             uploading = true
-            runCatching {
-                val name = queryFileName(context, uri) ?: "file"
-                val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                val tmp = File(context.cacheDir, "upload_$name")
-                context.contentResolver.openInputStream(uri)?.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                val uploaded = try { SessionManager.api.uploadFile(tmp, mime) } finally { tmp.delete() }
-                ChatRepository.sendMessage(convo, "", fileId = uploaded.id, replyToId = replyTo?.id)
-                replyTo = null
-            }.onFailure { snackbar.showSnackbar(it.message ?: "Upload failed") }
+            sendProgress = 0f
+            var failed = 0
+            var lastError: String? = null
+            files.forEachIndexed { i, f ->
+                runCatching { uploadStaged(context, f) { p -> sendProgress = (i + p) / files.size } }
+                    .onSuccess { id ->
+                        ChatRepository.sendMessage(convo, if (i == 0) caption else "", fileId = id, replyToId = if (i == 0) reply?.id else null)
+                    }
+                    .onFailure { failed++; lastError = it.message }
+            }
+            replyTo = null
+            staged = emptyList()
+            sendProgress = null
             uploading = false
+            if (failed > 0) snackbar.showSnackbar(if (files.size == 1) lastError ?: "Upload failed" else "$failed of ${files.size} files failed to upload")
         }
     }
 
@@ -219,6 +258,27 @@ fun ChatScreen(convo: Convo, onBack: () -> Unit, onOpenPinned: () -> Unit = {}, 
         group != null -> "${group.members.size} members" + if (encrypted) " · encrypted" else ""
         peer != null -> presenceLabel(peerStatus) + if (encrypted) " · encrypted" else ""
         else -> ""
+    }
+
+    if (showAttachSheet) {
+        AttachSheet(
+            onDismiss = { showAttachSheet = false },
+            onGallery = { pickMedia.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+            onCamera = openCamera,
+            onDocument = { pickDocs.launch(arrayOf("*/*")) },
+        )
+    }
+    if (staged.isNotEmpty()) {
+        AttachmentPreviewDialog(
+            files = staged,
+            encrypted = encrypted,
+            sending = uploading,
+            progress = sendProgress,
+            onRemove = { i -> staged = staged.filterIndexed { j, _ -> j != i } },
+            onAddMore = { showAttachSheet = true },
+            onCancel = { staged = emptyList() },
+            onSend = sendStaged,
+        )
     }
 
     Scaffold(
@@ -309,7 +369,7 @@ fun ChatScreen(convo: Convo, onBack: () -> Unit, onOpenPinned: () -> Unit = {}, 
                 replyTo = replyTo,
                 editing = editingMsg,
                 onCancelContext = { replyTo = null; if (editingMsg != null) { editingMsg = null; input = "" } },
-                onAttach = { pickFile.launch("*/*") },
+                onAttach = { showAttachSheet = true },
                 onSend = {
                     val edit = editingMsg
                     if (edit != null) {
@@ -335,7 +395,10 @@ fun ChatScreen(convo: Convo, onBack: () -> Unit, onOpenPinned: () -> Unit = {}, 
                 items(rows, key = { r -> if (r is ChatRow.Msg) (r.msg.clientId ?: "m${r.msg.id}") else "d${(r as ChatRow.Day).label}" }) { row ->
                     when (row) {
                         is ChatRow.Day -> DayChip(row.label)
-                        is ChatRow.Msg -> MessageBubble(
+                        is ChatRow.Msg -> SwipeToReply(
+                            enabled = row.msg.deleted_at == null && row.msg.id > 0 && editingMsg == null,
+                            onReply = { replyTo = row.msg },
+                        ) { MessageBubble(
                             msg = row.msg,
                             isMine = row.msg.sender_id == me?.id,
                             isGroup = convo is Convo.GroupChat,
@@ -352,7 +415,7 @@ fun ChatScreen(convo: Convo, onBack: () -> Unit, onOpenPinned: () -> Unit = {}, 
                                 if (f.mime.startsWith("image/")) lightboxFile = f
                                 else scope.launch { runCatching { openAttachment(context, f) }.onFailure { snackbar.showSnackbar("Couldn't open the file") } }
                             },
-                        )
+                        ) }
                     }
                 }
                 if (convo.key in loadingOlder) {

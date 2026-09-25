@@ -2,10 +2,32 @@ package com.videocall.mobile.call
 
 import android.Manifest
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Rational
+import android.view.WindowManager
+import androidx.activity.OnBackPressedCallback
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -50,8 +72,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import com.videocall.mobile.chat.ChatRepository
 import com.videocall.mobile.chat.Convo
@@ -101,6 +121,7 @@ class CallActivity : ComponentActivity() {
         setContent {
             VisionCallTheme(forceDark = true) {
                 CallScreen(
+                    inPip = inPip.value,
                     onFinish = { finish() },
                     onRequestScreenShare = {
                         val mgr = getSystemService(MediaProjectionManager::class.java)
@@ -109,6 +130,93 @@ class CallActivity : ComponentActivity() {
                 )
             }
         }
+
+        // Back during a call shrinks it to picture-in-picture instead of
+        // leaving the call screen behind.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (!enterPipIfInCall()) {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                CallRepository.state.collect { applyCallState(it) }
+            }
+        }
+    }
+
+    private val inPip = mutableStateOf(false)
+    private var proximityLock: PowerManager.WakeLock? = null
+
+    private fun inCall(s: CallUiState) =
+        s.incoming == null && s.roomInvite == null &&
+            (s.status == CallStatus.ACTIVE || s.status == CallStatus.CONNECTING || s.status == CallStatus.OUTGOING)
+
+    // The screen stays on for the whole call. On a voice call held to the ear
+    // (earpiece, no video) the proximity sensor turns it off instead, like a
+    // phone call.
+    private fun applyCallState(s: CallUiState) {
+        val ringingOrLive = inCall(s) || s.incoming != null || s.roomInvite != null
+        if (ringingOrLive) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val earpiece = s.status == CallStatus.ACTIVE && s.mode == CallMode.P2P && !s.speakerOn && !s.camOn && s.remoteVideoTrack == null
+        setProximity(earpiece)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasPip()) {
+            runCatching { setPictureInPictureParams(pipParams(auto = inCall(s))) }
+        }
+    }
+
+    private fun setProximity(on: Boolean) {
+        val pm = getSystemService(PowerManager::class.java) ?: return
+        if (on) {
+            if (proximityLock?.isHeld == true) return
+            if (!pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) return
+            proximityLock = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "visioncall:proximity").also {
+                it.setReferenceCounted(false)
+                it.acquire(4 * 60 * 60 * 1000L)
+            }
+        } else {
+            proximityLock?.let { if (it.isHeld) it.release() }
+            proximityLock = null
+        }
+    }
+
+    private fun hasPip() = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    private fun pipParams(auto: Boolean): PictureInPictureParams {
+        val b = PictureInPictureParams.Builder().setAspectRatio(Rational(9, 16))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.setAutoEnterEnabled(auto)
+            b.setSeamlessResizeEnabled(true)
+        }
+        return b.build()
+    }
+
+    private fun enterPipIfInCall(): Boolean {
+        if (!hasPip() || !inCall(CallRepository.state.value)) return false
+        return runCatching { enterPictureInPictureMode(pipParams(auto = true)) }.getOrDefault(false)
+    }
+
+    // Android 12+ enters picture-in-picture by itself (setAutoEnterEnabled);
+    // older versions need this.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPipIfInCall()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip.value = isInPictureInPictureMode
+    }
+
+    override fun onDestroy() {
+        setProximity(false)
+        super.onDestroy()
     }
 
     // The call screen is single-instance: tapping Answer on the ringing
@@ -144,12 +252,30 @@ class CallActivity : ComponentActivity() {
 private val Glass = Color.White.copy(alpha = 0.14f)
 
 @Composable
-fun CallScreen(onFinish: () -> Unit, onRequestScreenShare: () -> Unit) {
+fun CallScreen(inPip: Boolean = false, onFinish: () -> Unit, onRequestScreenShare: () -> Unit) {
     val state by CallRepository.state.collectAsState()
     var showParticipants by remember { mutableStateOf(false) }
     var showChat by remember { mutableStateOf(false) }
     val convo: Convo? = state.group?.let { Convo.GroupChat(it.id) } ?: state.peer?.let { Convo.Dm(it.id) }
     val toastContext = LocalContext.current
+    val me by SessionManager.me.collectAsState()
+
+    // Messages that arrive in this call's chat while the chat is closed: a
+    // badge on the Chat button and a short banner you can tap to open it.
+    val unreadMap by ChatRepository.unread.collectAsState()
+    val chatUnread = convo?.let { unreadMap[it.key] } ?: 0
+    val allMessages by ChatRepository.messages.collectAsState()
+    val latest = convo?.let { allMessages[it.key]?.lastOrNull() }
+    var banner by remember { mutableStateOf<Message?>(null) }
+    LaunchedEffect(latest?.id) {
+        val m = latest ?: return@LaunchedEffect
+        val fresh = runCatching { java.time.Instant.parse(m.sent_at).isAfter(java.time.Instant.now().minusSeconds(30)) }.getOrDefault(false)
+        if (!showChat && m.id > 0 && m.sender_id != me?.id && fresh) {
+            banner = m
+            delay(5000)
+            if (banner?.id == m.id) banner = null
+        }
+    }
 
     LaunchedEffect(state.status, state.roomInvite) {
         if (state.status == CallStatus.IDLE && state.roomInvite == null) onFinish()
@@ -158,6 +284,11 @@ fun CallScreen(onFinish: () -> Unit, onRequestScreenShare: () -> Unit) {
     // after — call-ending events reset status to IDLE, which finishes this screen.
     LaunchedEffect(state.toast) {
         state.toast?.let { android.widget.Toast.makeText(toastContext, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
+
+    if (inPip) {
+        PipView(state)
+        return
     }
 
     Box(Modifier.fillMaxSize().background(VcColor.CallBg)) {
@@ -175,8 +306,60 @@ fun CallScreen(onFinish: () -> Unit, onRequestScreenShare: () -> Unit) {
                 Modifier.align(Alignment.BottomCenter),
                 onRequestScreenShare = onRequestScreenShare,
                 onShowParticipants = { showParticipants = true },
-                onShowChat = if (convo != null) { { showChat = true } } else null,
+                onShowChat = if (convo != null) { { showChat = true; banner = null } } else null,
+                chatUnread = chatUnread,
             )
+        }
+        AnimatedVisibility(
+            visible = state.sharing,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 70.dp),
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+        ) {
+            Row(
+                Modifier.clip(CircleShape).background(VcColor.Success.copy(alpha = 0.95f)).padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.ScreenShare, null, Modifier.size(16.dp), tint = Color.White)
+                Text("  You're sharing your screen", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(10.dp))
+                FilledTonalButton(
+                    onClick = { CallRepository.stopScreenShare() },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color.White.copy(alpha = 0.25f), contentColor = Color.White),
+                ) { Text("Stop") }
+            }
+        }
+        AnimatedVisibility(
+            visible = banner != null && !showChat,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = if (state.sharing) 116.dp else 70.dp, start = 16.dp, end = 16.dp),
+            enter = fadeIn() + slideInVertically { -it },
+            exit = fadeOut() + slideOutVertically { -it },
+        ) {
+            val m = banner
+            Surface(
+                onClick = { banner = null; showChat = true },
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 8.dp,
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 420.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ChatBubble, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text(m?.sender?.display_name ?: "New message", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                        Text(
+                            when {
+                                m == null -> ""
+                                m.is_encrypted -> m.decryptedContent ?: "Encrypted message"
+                                m.file != null && m.content.isBlank() -> "Sent a file"
+                                else -> m.content
+                            },
+                            style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
         AnimatedVisibility(
             visible = state.joinRequests.isNotEmpty(),
@@ -374,10 +557,17 @@ private fun RoundAction(icon: ImageVector, label: String, color: Color, onClick:
 @Composable
 private fun DirectCallView(state: CallUiState) {
     val direct = CallRepository.direct
-    Box(Modifier.fillMaxSize()) {
-        val remote = state.remoteVideoTrack
-        if (remote != null && state.status == CallStatus.ACTIVE) {
-            VideoSurface(remote, mirror = false, modifier = Modifier.fillMaxSize())
+    // Tapping the small preview swaps it with the big video.
+    var swapped by remember { mutableStateOf(false) }
+    val remote = state.remoteVideoTrack?.takeIf { state.status == CallStatus.ACTIVE }
+    val local = direct?.media?.videoTrack?.takeIf { state.camOn }
+    val big = if (swapped && local != null) local else remote
+    val small = if (swapped && local != null) remote else local
+    val front = direct?.media?.facingFront == true
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (big != null) {
+            VideoSurface(big, mirror = big === local && front, modifier = Modifier.fillMaxSize())
         } else {
             CallBackdrop {
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -395,14 +585,93 @@ private fun DirectCallView(state: CallUiState) {
                 Text(" ${state.peer?.display_name?.substringBefore(' ') ?: "They"} muted", color = Color.White, style = MaterialTheme.typography.labelLarge)
             }
         }
-        direct?.media?.videoTrack?.let { track ->
-            if (state.camOn) {
-                Box(
-                    Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 80.dp, end = 16.dp)
-                        .size(108.dp, 152.dp).clip(RoundedCornerShape(18.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(18.dp)),
-                ) { VideoSurface(track, mirror = direct.media.facingFront, overlay = true, modifier = Modifier.fillMaxSize()) }
+        if (small != null) {
+            FloatingPreview(
+                track = small,
+                mirror = small === local && front,
+                areaWidth = maxWidth,
+                areaHeight = maxHeight,
+                onTap = { swapped = !swapped },
+            )
+        }
+    }
+}
+
+/**
+ * The small video in the corner: drag it anywhere (it settles into the
+ * nearest corner), tap to swap it with the big video, double-tap to make it
+ * bigger or smaller.
+ */
+@Composable
+private fun FloatingPreview(track: VideoTrack, mirror: Boolean, areaWidth: Dp, areaHeight: Dp, onTap: () -> Unit) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    var large by remember { mutableStateOf(false) }
+    val w = if (large) 156.dp else 108.dp
+    val h = if (large) 218.dp else 152.dp
+    val margin = 16.dp
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 124.dp
+    var right by remember { mutableStateOf(true) }
+    var top by remember { mutableStateOf(true) }
+
+    fun target(): Offset = with(density) {
+        Offset(
+            x = if (right) (areaWidth - w - margin).toPx() else margin.toPx(),
+            y = if (top) topInset.toPx() else (areaHeight - h - bottomInset).toPx(),
+        )
+    }
+    val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    LaunchedEffect(right, top, large, areaWidth, areaHeight) { offset.animateTo(target()) }
+
+    Box(
+        Modifier
+            .offset { IntOffset(offset.value.x.roundToInt(), offset.value.y.roundToInt()) }
+            .size(w, h)
+            .shadow(12.dp, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
+            .background(VcColor.TileBg)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        val centerX = offset.value.x + with(density) { w.toPx() } / 2
+                        val centerY = offset.value.y + with(density) { h.toPx() } / 2
+                        val newRight = centerX > with(density) { areaWidth.toPx() } / 2
+                        val newTop = centerY < with(density) { areaHeight.toPx() } / 2
+                        if (newRight == right && newTop == top) scope.launch { offset.animateTo(target()) }
+                        right = newRight
+                        top = newTop
+                    },
+                ) { change, drag ->
+                    change.consume()
+                    scope.launch { offset.snapTo(offset.value + drag) }
+                }
             }
+            .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }, onDoubleTap = { large = !large }) },
+    ) {
+        VideoSurface(track, mirror = mirror, modifier = Modifier.fillMaxSize())
+    }
+}
+
+/** Picture-in-picture: just the other person's video (or their picture). */
+@Composable
+private fun PipView(state: CallUiState) {
+    val me by SessionManager.me.collectAsState()
+    val room = CallRepository.room
+    @Suppress("UNUSED_VARIABLE") val tracksVersion = state.tracksVersion
+    val track: VideoTrack? = if (state.mode == CallMode.SFU) {
+        state.participants.filter { it.user_id != me?.id }
+            .firstNotNullOfOrNull { p -> room?.remoteTracks?.get(p.user_id)?.let { it.screen ?: it.cam?.takeIf { p.video_on } } }
+    } else {
+        state.remoteVideoTrack
+    }
+    Box(Modifier.fillMaxSize().background(VcColor.CallBg), contentAlignment = Alignment.Center) {
+        if (track != null) {
+            VideoSurface(track, mirror = false, modifier = Modifier.fillMaxSize())
+        } else {
+            val name = state.peer?.display_name ?: state.group?.name ?: "Call"
+            Avatar(name, state.peer?.avatar_file_id, size = 64)
         }
     }
 }
@@ -501,6 +770,7 @@ private fun CallControls(
     onRequestScreenShare: () -> Unit,
     onShowParticipants: () -> Unit,
     onShowChat: (() -> Unit)? = null,
+    chatUnread: Int = 0,
 ) {
     val me by SessionManager.me.collectAsState()
     var more by remember { mutableStateOf(false) }
@@ -518,6 +788,7 @@ private fun CallControls(
             ControlButton(if (state.micOn) Icons.Default.Mic else Icons.Default.MicOff, if (state.micOn) "Mute" else "Unmute", off = !state.micOn) { CallRepository.toggleMic() }
             ControlButton(if (state.camOn) Icons.Default.Videocam else Icons.Default.VideocamOff, if (state.camOn) "Turn camera off" else "Turn camera on", off = !state.camOn) { CallRepository.toggleCam() }
             ControlButton(if (state.speakerOn) Icons.Default.VolumeUp else Icons.Default.PhoneInTalk, if (state.speakerOn) "Speaker on" else "Earpiece", active = state.speakerOn) { CallRepository.toggleSpeaker() }
+            if (onShowChat != null) ControlButton(Icons.Default.ChatBubble, "Chat", badge = chatUnread) { onShowChat() }
             Box {
                 ControlButton(Icons.Default.MoreHoriz, "More") { more = true }
                 DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
@@ -532,7 +803,6 @@ private fun CallControls(
                         DropdownMenuItem(text = { Text(if (raised) "Lower hand" else "Raise hand") }, leadingIcon = { Icon(Icons.Default.PanTool, null) }, onClick = { more = false; CallRepository.toggleRaiseHand() })
                         DropdownMenuItem(text = { Text("Participants (${state.participants.size})") }, leadingIcon = { Icon(Icons.Default.People, null) }, onClick = { more = false; onShowParticipants() })
                     }
-                    if (onShowChat != null) DropdownMenuItem(text = { Text("Chat") }, leadingIcon = { Icon(Icons.Default.ChatBubble, null) }, onClick = { more = false; onShowChat() })
                 }
             }
             FilledIconButton(
@@ -546,7 +816,8 @@ private fun CallControls(
 }
 
 @Composable
-private fun ControlButton(icon: ImageVector, label: String, off: Boolean = false, active: Boolean = false, onClick: () -> Unit) {
+private fun ControlButton(icon: ImageVector, label: String, off: Boolean = false, active: Boolean = false, badge: Int = 0, onClick: () -> Unit) {
+    Box {
     FilledIconButton(
         onClick = onClick,
         modifier = Modifier.size(56.dp),
@@ -559,6 +830,14 @@ private fun ControlButton(icon: ImageVector, label: String, off: Boolean = false
             contentColor = if (off) Color(0xFF111827) else Color.White,
         ),
     ) { Icon(icon, label, Modifier.size(24.dp)) }
+    if (badge > 0) {
+        Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp).sizeIn(minWidth = 20.dp, minHeight = 20.dp)
+                .clip(CircleShape).background(VcColor.Danger).padding(horizontal = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(if (badge > 9) "9+" else "$badge", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+    }
+    }
 }
 
 @Composable
@@ -642,8 +921,9 @@ private fun CallChatSheet(convo: Convo, onDismiss: () -> Unit) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().heightIn(min = 320.dp, max = 560.dp).imePadding()) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 320.dp, max = 560.dp).navigationBarsPadding().imePadding()) {
             Text("Chat", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp))
             LazyColumn(
                 state = listState,
@@ -698,27 +978,27 @@ private fun CallChatBubble(msg: Message, isMine: Boolean) {
 }
 
 /**
- * One WebRTC renderer. Keyed on the track instance so a swapped track gets a
- * fresh renderer; released on disposal (a SurfaceViewRenderer holds an EGL
- * context — never releasing it leaked one per tile per call). [overlay] puts a
- * picture-in-picture above a full-screen video (both are SurfaceViews).
+ * One WebRTC video, drawn into a TextureView so rounded corners, dragging
+ * and animations apply to it (see TextureVideoRenderer). Keyed on the track
+ * so a swapped track gets a fresh renderer; released on disposal, since each
+ * renderer holds an EGL context.
  */
 @Composable
-private fun VideoSurface(track: VideoTrack, mirror: Boolean, modifier: Modifier = Modifier, overlay: Boolean = false, fit: Boolean = false) {
+private fun VideoSurface(track: VideoTrack, mirror: Boolean, modifier: Modifier = Modifier, fit: Boolean = false) {
     key(track) {
         AndroidView(
             modifier = modifier,
             factory = { ctx ->
-                SurfaceViewRenderer(ctx).apply {
-                    init(WebRtc.eglBase.eglBaseContext, null)
-                    setScalingType(if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT else RendererCommon.ScalingType.SCALE_ASPECT_FILL)
-                    setEnableHardwareScaler(true)
-                    if (overlay) setZOrderMediaOverlay(true)
+                TextureVideoRenderer(ctx).apply {
+                    init(WebRtc.eglBase.eglBaseContext, fill = !fit)
                     setMirror(mirror)
                     track.addSink(this)
                 }
             },
-            update = { it.setMirror(mirror) },
+            update = {
+                it.setMirror(mirror)
+                it.setFill(!fit)
+            },
             onRelease = { renderer ->
                 runCatching { track.removeSink(renderer) }
                 renderer.release()

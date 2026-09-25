@@ -48,7 +48,9 @@ Want people to sign in with your company login instead? Set up single sign-on, s
 
 - **Chats** lists your conversations. Start one from **Directory**, which lists everyone on the server with their online status.
 - Create a **group** for team conversations. Groups can also hold group calls.
-- Messages support replies, reactions, edits, pinning, saving and search. Drag a file onto the chat to share it.
+- Messages support replies (swipe a message to the right), reactions, edits, pinning, saving and search.
+- To share photos, videos or documents, use the paperclip (or drag files onto the chat in a browser). You see a preview, can add a caption, and watch the upload progress before it's sent.
+- Chats are end-to-end encrypted by default over HTTPS. Turn on **Settings > Chat backup** so you can read them on a new phone or browser later.
 
 ## 5. Call
 

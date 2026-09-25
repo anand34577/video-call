@@ -6,6 +6,7 @@ import { usePresence } from "./presence";
 import { encryptForRecipients, decryptMessageContent, usersMissingKeys } from "../lib/crypto";
 import type { Convo, Group, Message, MessagePreview } from "../lib/types";
 import { useAuth } from "./auth";
+import { toast } from "./toast";
 
 // isMentioned reports whether content contains "@username" as a whole token
 // (not just a substring of a longer name), case-insensitively.
@@ -26,9 +27,19 @@ export function isMentioned(content: string, username: string): boolean {
 // of a per-browser guess. The stored value is always "0" or "1" (never
 // absent) specifically so "explicitly off" and "never set on this device"
 // can be told apart.
-function e2eStorageKey(convoKey: string) { return `vc.e2e.${convoKey}`; }
+// "v2": earlier versions stored a guess (copied from the last message) for
+// every chat opened, which would now read as a deliberate "off".
+function e2eStorageKey(convoKey: string) { return `vc.e2e.v2.${convoKey}`; }
+// Chats are end-to-end encrypted unless someone turned it off for that chat.
+// Browsers only allow the encryption over HTTPS, so plain HTTP stays off.
 function loadE2EFlag(convoKey: string): boolean {
-  try { return localStorage.getItem(e2eStorageKey(convoKey)) === "1"; } catch { return false; }
+  if (!window.isSecureContext) return false;
+  try {
+    const stored = localStorage.getItem(e2eStorageKey(convoKey));
+    return stored === null ? true : stored === "1";
+  } catch {
+    return true;
+  }
 }
 function hasExplicitE2EFlag(convoKey: string): boolean {
   try { return localStorage.getItem(e2eStorageKey(convoKey)) !== null; } catch { return false; }
@@ -89,6 +100,8 @@ interface ChatsState {
   typingDm: Record<number, number>;
   typingGroup: Record<number, Record<number, { name: string; time: number }>>;
   unread: Record<string, number>;
+  /** A call is covering the chat, so it isn't actually being read. */
+  callCovering: boolean;
   sendError: string | null;
   historyLoading: Record<string, boolean>;
   hasMore: Record<string, boolean>;
@@ -139,6 +152,7 @@ export const useChats = create<ChatsState>((set, get) => ({
   typingDm: {},
   typingGroup: {},
   unread: {},
+  callCovering: false,
   sendError: null,
   historyLoading: {},
   hasMore: {},
@@ -174,7 +188,7 @@ export const useChats = create<ChatsState>((set, get) => ({
   isEncrypted: (c) => !!get().encryptedConvos[key(c)],
 
   // Kicks off async decryption for any encrypted messages not already
-  // cached, so the UI can render "🔒 …" then swap in plaintext a moment
+  // cached, so the UI can render a placeholder then swap in plaintext a moment
   // later without blocking the message list on crypto work.
   decryptPending: (msgs) => {
     const cache = get().decryptedContent;
@@ -221,10 +235,8 @@ export const useChats = create<ChatsState>((set, get) => ({
       // doesn't silently present an encrypted conversation as plaintext-by-
       // default. before-set is only true when paging older history, in which
       // case a default has already been established by the initial load.
-      if (before === undefined && !hasExplicitE2EFlag(k) && msgs.length > 0) {
-        const last = [...msgs].sort(messageOrder)[msgs.length - 1];
-        get().setEncrypted(c, last.is_encrypted);
-      }
+      // Encryption is on by default (see loadE2EFlag), so nothing to infer
+      // from the history here.
     } catch {
       set((s) => ({ historyLoading: { ...s.historyLoading, [key(c)]: false } }));
     }
@@ -460,6 +472,18 @@ export const useChats = create<ChatsState>((set, get) => ({
       // encKeys and the message going out anyway with no indication anyone
       // was excluded.
       usersMissingKeys(recipientIDs.filter((id) => id !== me.id)).then((missing) => {
+        // Someone in the chat has never signed in on any device, so there's
+        // no key to encrypt for. With encryption on only by default, send it
+        // unencrypted and say so; if the user turned it on themselves, don't.
+        if (missing.length > 0 && !hasExplicitE2EFlag(key(c))) {
+          toast.info(
+            missing.length === 1
+              ? "Sent without end-to-end encryption: the other person hasn't signed in on any device yet."
+              : `Sent without end-to-end encryption: ${missing.length} people haven't signed in on any device yet.`,
+          );
+          if (!ws.send("message:send", { ...basePayload, content: text })) fail();
+          return;
+        }
         if (missing.length > 0) {
           set({ sendError: `Could not send: ${missing.length === 1 ? "a recipient hasn't" : `${missing.length} recipients haven't`} set up encryption on any device yet.` });
           fail();
@@ -570,6 +594,7 @@ export const useChats = create<ChatsState>((set, get) => ({
       // unread badge unless viewing this convo and page visible
       const active = get().active;
       const isActive =
+        !get().callCovering &&
         active &&
         ((convo.kind === "dm" && active.kind === "dm" && active.peerID === convo.peerID) ||
           (convo.kind === "group" && active.kind === "group" && active.groupID === convo.groupID));

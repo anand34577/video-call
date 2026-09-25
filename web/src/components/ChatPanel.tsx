@@ -1,3 +1,4 @@
+import AttachmentPreview from "./AttachmentPreview";
 import React, { ClipboardEvent, DragEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -547,44 +548,40 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const upload = async (file: File) => {
-    const target = active;
-    if (!target) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const f = await api.uploadFile(file);
-      sendMessage(target, "", f.id, replyTo?.id);
-      setReplyTo(null);
-    } catch (err: any) {
-      setUploadError(err?.message ?? "Could not upload file");
-    }
-    setUploading(false);
+  // Picked, dropped or pasted files wait in a preview (with a caption)
+  // until the user presses Send.
+  const [staged, setStaged] = useState<File[]>([]);
+  const [sendProgress, setSendProgress] = useState<number | null>(null);
+  const stageFiles = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length) setStaged((s) => [...s, ...list]);
   };
 
-  // uploadMany sends each file as its own message, sequentially (a burst of
-  // parallel uploads would fight the per-user storage-quota check, which
-  // reads-then-writes and isn't safe under concurrent racing requests).
-  const uploadMany = async (files: FileList | File[]) => {
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    if (list.length === 1) return upload(list[0]);
+  // Uploads one at a time: parallel uploads would race the per-user storage
+  // quota check, which reads then writes. The caption goes with the first file.
+  const sendStaged = async (caption: string) => {
     const target = active;
-    if (!target) return;
+    const list = staged;
+    if (!target || list.length === 0) return;
     setUploading(true);
     setUploadError(null);
+    setSendProgress(0);
     let failures = 0;
-    for (const file of list) {
+    let lastError = "";
+    for (let i = 0; i < list.length; i++) {
       try {
-        const f = await api.uploadFile(file);
-        sendMessage(target, "", f.id);
-      } catch {
+        const f = await api.uploadFile(list[i], (p) => setSendProgress((i + p) / list.length));
+        sendMessage(target, i === 0 ? caption : "", f.id, i === 0 ? replyTo?.id : undefined);
+      } catch (err: any) {
         failures++;
+        lastError = err?.message ?? "Could not upload file";
       }
     }
     setReplyTo(null);
-    if (failures > 0) setUploadError(`${failures} of ${list.length} files failed to upload`);
+    setStaged([]);
+    setSendProgress(null);
     setUploading(false);
+    if (failures > 0) setUploadError(list.length === 1 ? lastError : `${failures} of ${list.length} files failed to upload`);
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -595,7 +592,7 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
         const file = items[i].getAsFile();
         if (file) {
           e.preventDefault();
-          void upload(file);
+          stageFiles([file]);
           return;
         }
       }
@@ -616,7 +613,7 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     setDragOver(false);
     if (e.dataTransfer.files?.length) {
-      void uploadMany(e.dataTransfer.files);
+      stageFiles(e.dataTransfer.files);
     }
   };
 
@@ -964,7 +961,11 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
                   </span>
                 </div>
               )}
-              <div className={`flex items-center gap-1 group ${mine ? "justify-end" : "justify-start"} ${m.pending ? "opacity-70" : ""}`}>
+              <SwipeToReply
+                enabled={canActOn(m)}
+                onReply={() => { setReplyTo(m); setEditingID(null); }}
+                className={`flex items-center gap-1 group ${mine ? "justify-end" : "justify-start"} ${m.pending ? "opacity-70" : ""}`}
+              >
                 {mine && canActOn(m) && (
                   <MessageActions
                     m={m}
@@ -1067,16 +1068,31 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
                             />
                           </button>
                         )}
-                        {m.file && !m.file.mime.startsWith("image/") && (
+                        {m.file && m.file.mime.startsWith("video/") && (
+                          <video
+                            src={`/api/files/${m.file.id}`}
+                            controls
+                            preload="metadata"
+                            className="rounded-lg mb-1.5 max-h-72 w-full max-w-sm bg-black"
+                          />
+                        )}
+                        {m.file && m.file.mime.startsWith("audio/") && (
+                          <audio src={`/api/files/${m.file.id}`} controls preload="metadata" className="mb-1.5 w-64 max-w-full" />
+                        )}
+                        {m.file && !/^(image|video|audio)\//.test(m.file.mime) && (
                           <a
                             href={`/api/files/${m.file.id}`}
                             download={m.file.name}
-                            className="flex items-center gap-2 mb-1 underline underline-offset-2"
+                            className={`flex items-center gap-3 mb-1.5 rounded-xl px-3 py-2.5 min-w-[12rem] transition ${mine ? "bg-white/15 hover:bg-white/25" : "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"}`}
                           >
-                            <FileIcon className="h-4 w-4 shrink-0" />
-                            <span className="truncate">
-                              {m.file.name} ({fmtBytes(m.file.size)})
+                            <span className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${mine ? "bg-white/20" : "bg-blue-600/15 text-blue-600 dark:text-blue-400"}`}>
+                              <FileIcon className="h-4.5 w-4.5" />
                             </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{m.file.name}</span>
+                              <span className="block text-[11px] opacity-75">{fmtBytes(m.file.size)} · {m.file.name.split(".").pop()?.toUpperCase()}</span>
+                            </span>
+                            <Download className="h-4 w-4 shrink-0 opacity-75" />
                           </a>
                         )}
                         {m.is_encrypted ? (
@@ -1125,7 +1141,7 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
                     align="left"
                   />
                 )}
-              </div>
+              </SwipeToReply>
             </div>
           );
         })}
@@ -1176,6 +1192,16 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
           </button>
         )}
         {uploadError && <p className="mb-2 text-xs text-rose-600 dark:text-rose-400" role="alert">{uploadError}</p>}
+        <AttachmentPreview
+          files={staged}
+          onAddMore={() => fileInput.current?.click()}
+          onRemove={(i) => setStaged((s) => s.filter((_, j) => j !== i))}
+          onCancel={() => setStaged([])}
+          onSend={(caption) => void sendStaged(caption)}
+          progress={sendProgress}
+          sending={uploading}
+          encrypted={encrypted}
+        />
         <div className="flex items-end gap-2">
           <input
             ref={fileInput}
@@ -1183,7 +1209,7 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
             multiple
             className="hidden"
             onChange={(e) => {
-              if (e.target.files?.length) void uploadMany(e.target.files);
+              if (e.target.files?.length) stageFiles(e.target.files);
               e.target.value = "";
             }}
           />
@@ -1608,3 +1634,61 @@ export default function ChatPanel({ onBack }: { onBack: () => void }) {
   );
 }
 
+/**
+ * Swipe a message to the right to reply to it, like WhatsApp. Touch only;
+ * with a mouse the Reply button in the message actions does the same.
+ */
+function SwipeToReply({
+  enabled,
+  onReply,
+  className,
+  children,
+}: {
+  enabled: boolean;
+  onReply: () => void;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const [dx, setDx] = useState(0);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const axis = useRef<"h" | "v" | null>(null);
+  const THRESHOLD = 60;
+
+  if (!enabled) return <div className={className}>{children}</div>;
+  return (
+    <div
+      className={`relative ${className}`}
+      style={{ transform: dx ? `translateX(${dx}px)` : undefined, transition: dx ? "none" : "transform 0.2s ease-out", touchAction: "pan-y" }}
+      onTouchStart={(e) => {
+        start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        axis.current = null;
+      }}
+      onTouchMove={(e) => {
+        if (!start.current) return;
+        const mx = e.touches[0].clientX - start.current.x;
+        const my = e.touches[0].clientY - start.current.y;
+        if (!axis.current && (Math.abs(mx) > 8 || Math.abs(my) > 8)) axis.current = Math.abs(mx) > Math.abs(my) ? "h" : "v";
+        if (axis.current === "h") setDx(Math.max(0, Math.min(mx, 90)));
+      }}
+      onTouchEnd={() => {
+        if (dx >= THRESHOLD) {
+          onReply();
+          navigator.vibrate?.(12);
+        }
+        start.current = null;
+        setDx(0);
+      }}
+    >
+      {dx > 0 && (
+        <span
+          className="absolute -left-9 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-blue-600/15 text-blue-500 flex items-center justify-center"
+          style={{ opacity: Math.min(dx / THRESHOLD, 1), transform: `translateY(-50%) scale(${0.6 + 0.4 * Math.min(dx / THRESHOLD, 1)})` }}
+          aria-hidden="true"
+        >
+          <ReplyIcon className="h-4 w-4" />
+        </span>
+      )}
+      {children}
+    </div>
+  );
+}

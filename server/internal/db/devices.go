@@ -1,5 +1,10 @@
 package db
 
+import (
+	"database/sql"
+	"errors"
+)
+
 // DeviceKey is one device's registered E2E public key. The server stores
 // and serves these verbatim — it has no way to use them (no private key),
 // they're only useful to other clients doing the actual encryption.
@@ -45,4 +50,59 @@ func (d *DB) DeviceKeysForUsers(userIDs []int64) ([]DeviceKey, error) {
 		out = append(out, k)
 	}
 	return out, rows.Err()
+}
+
+// BackupDeviceID is the pseudo-device an account's encryption key backup is
+// registered under, so senders seal every message for it too.
+const BackupDeviceID = "backup"
+
+// KeyBackup returns an account's key backup and when it was saved, or
+// ErrNotFound when the account has none.
+func (d *DB) KeyBackup(userID int64) (data, updatedAt string, err error) {
+	err = d.QueryRow(`SELECT data, updated_at FROM key_backups WHERE user_id = ?`, userID).Scan(&data, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrNotFound
+	}
+	return data, updatedAt, err
+}
+
+// SaveKeyBackup stores an account's key backup and registers the backup's
+// public key as its "backup" device, in one transaction.
+func (d *DB) SaveKeyBackup(userID int64, data, publicKeyJWK string) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	if _, err := tx.Exec(`DELETE FROM key_backups WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO key_backups (user_id, data, updated_at) VALUES (?, ?, ?)`, userID, data, stamp); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM user_devices WHERE user_id = ? AND device_id = ?`, userID, BackupDeviceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_devices (user_id, device_id, public_key_jwk, created_at) VALUES (?, ?, ?, ?)`, userID, BackupDeviceID, publicKeyJWK, stamp); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteKeyBackup removes an account's key backup and its backup device, so
+// new messages are no longer sealed for it.
+func (d *DB) DeleteKeyBackup(userID int64) error {
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM key_backups WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM user_devices WHERE user_id = ? AND device_id = ?`, userID, BackupDeviceID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

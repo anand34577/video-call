@@ -177,3 +177,9 @@ export interface PrivateRoom {
   is_owner: boolean;
   created_at: string;
 }
+
+export interface BackupSnapshot {
+  name: string;
+  size: number;
+  created_at: string;
+}

@@ -56,6 +56,10 @@ if (Get-NetFirewallRule -DisplayName "Vision Call" -ErrorAction SilentlyContinue
     New-NetFirewallRule -DisplayName "Vision Call" -Direction Inbound -Program $exe -Action Allow | Out-Null
 }
 $logStart = if (Test-Path $log) { (Get-Item $log).Length } else { 0 }
+# Restart automatically if the service stops unexpectedly. Restoring a
+# backup from the admin screen relies on this: the server exits and comes
+# back up with the restored data.
+& sc.exe failure $name reset= 86400 actions= restart/3000/restart/5000/restart/10000 | Out-Null
 Start-Service $name
 
 # The very first start prints a random admin password; show it here so nobody

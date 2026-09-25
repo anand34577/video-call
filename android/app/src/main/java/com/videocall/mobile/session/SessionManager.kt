@@ -62,6 +62,7 @@ object SessionManager {
     fun bind(serverUrl: String) {
         api = Api(appContext, serverUrl)
         ws = WsClient(api, Prefs.deviceId(appContext))
+        ws.onReconnecting = { pending -> keepAwakeWhileReconnecting(pending) }
         _myStatus.value = Prefs.myStatus(appContext)
         api.onUnauthorized = { logoutLocal() }
         // Every bind() (e.g. switching servers mid-session) creates a fresh
@@ -71,6 +72,21 @@ object SessionManager {
         com.videocall.mobile.call.CallRepository.registerOnce(appContext)
         com.videocall.mobile.chat.ChatRepository.init(appContext)
         com.videocall.mobile.chat.ChatRepository.registerOnce()
+    }
+
+    private var reconnectWakeLock: android.os.PowerManager.WakeLock? = null
+
+    // A partial wake lock only while a reconnect is pending (never while
+    // connected), capped at 10 minutes per attempt so it can't drain the battery.
+    private fun keepAwakeWhileReconnecting(pending: Boolean) {
+        val pm = appContext.getSystemService(android.os.PowerManager::class.java) ?: return
+        if (pending) {
+            val lock = reconnectWakeLock ?: pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "visioncall:reconnect")
+                .also { it.setReferenceCounted(false); reconnectWakeLock = it }
+            lock.acquire(10 * 60 * 1000L)
+        } else {
+            reconnectWakeLock?.let { if (it.isHeld) it.release() }
+        }
     }
 
     val hasServer: Boolean get() = ::api.isInitialized

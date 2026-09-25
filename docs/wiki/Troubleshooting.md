@@ -51,6 +51,13 @@ Each account can be signed in on one device at a time. Signing in somewhere else
 
 Another program is using port 8443, 8080 or 7882. Change the port (see [Networking and Firewall](Networking-and-Firewall#changing-the-ports)), or with Docker publish a different host port, like `-p 9443:8443`.
 
+## The Android app shows me offline after the screen locks
+
+Android stops apps from using the network a few minutes after the screen turns off unless they're allowed to run in the background. Vision Call has no push service (it runs on your own network), so it needs that permission to stay reachable:
+
+- Accept **Stay reachable for calls** when the app asks, or open **Settings > This device > Allow running in background**.
+- Some phone makers (Xiaomi, Samsung, Huawei, OnePlus and others) add their own battery savers. Also set Vision Call to "No restrictions" or "Unrestricted" in the phone's battery settings for the app.
+
 ## The Android app can't connect
 
 - Enter the full address, including `http://` or `https://` and the port, for example `http://192.168.1.50:8080`.

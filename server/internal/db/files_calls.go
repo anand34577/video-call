@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"strings"
 )
 
 type FileBrief struct {
@@ -424,4 +426,61 @@ func int64Args(ids []int64) []any {
 		out[i] = id
 	}
 	return out
+}
+
+// AllFilePathsForUploader returns the on-disk path of every file a user
+// uploaded. Permanently deleting a user removes all those rows (ON DELETE
+// CASCADE), so the files themselves have to go too.
+func (d *DB) AllFilePathsForUploader(userID int64) ([]string, error) {
+	rows, err := d.Query(`SELECT path FROM files WHERE uploader_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
+// RebaseFilePaths points every stored upload path at filesDir, keeping each
+// file's own name. A restored backup may come from a server whose data
+// folder was somewhere else (for example /data in Docker).
+func (d *DB) RebaseFilePaths(filesDir string) error {
+	rows, err := d.Query(`SELECT id, path FROM files`)
+	if err != nil {
+		return err
+	}
+	type row struct {
+		id   int64
+		path string
+	}
+	var all []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.path); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range all {
+		want := filepath.Join(filesDir, filepath.Base(filepath.FromSlash(strings.ReplaceAll(r.path, "\\", "/"))))
+		if want == r.path {
+			continue
+		}
+		if _, err := d.Exec(`UPDATE files SET path = ? WHERE id = ?`, want, r.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

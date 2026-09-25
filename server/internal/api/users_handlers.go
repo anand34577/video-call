@@ -383,7 +383,12 @@ func (a *API) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "could not revoke existing sessions")
 		return
 	}
+	// Removing keeps files still shown in other people's chats; erasing
+	// deletes every upload along with the messages.
 	paths, err := a.db.FilePathsForUploader(id)
+	if permanent {
+		paths, err = a.db.AllFilePathsForUploader(id)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not inspect user files")
 		return
